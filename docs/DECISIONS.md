@@ -9,3 +9,21 @@ Packages export a `source` condition pointing at `src/*.ts`. `tsconfig.base.json
 
 ## 2026-10-14 · Layering enforcement
 The allowed-imports map lives in `layers.js` and becomes `no-restricted-imports` rules in `eslint.config.js`. `tui` may import `daemon` (for the RPC client only); see the map for the rest.
+
+## 2026-10-14 · Task transitions beyond the PRD diagram
+The PRD diagram lists the main path and side edges. These extra edges are needed by flows the PRD describes elsewhere:
+- `QUEUED → PAUSED`, `PAUSED → QUEUED`: user pause of a queued task; resume requeues.
+- `RUNNING → QUEUED`: crash recovery "requeues the task as a resume".
+- `RUNNING → NEEDS_HUMAN`: a run fails in a way repair cannot fix (auth, CLI missing).
+- `REPAIRING → PAUSED`, `PAUSED → REPAIRING`, `REVIEWING → PAUSED`, `PAUSED → REVIEWING`: limits can hit during repair or review runs.
+- `REPAIRING → QUEUED`: requeue after a crash during repair.
+- `PR_READY → REPAIRING`, `NEEDS_HUMAN → REPAIRING`: `harness review --reject -m` sends work back with a comment.
+- `NEEDS_HUMAN → QUEUED`, `NEEDS_HUMAN → TAKEN_OVER`, `TAKEN_OVER → NEEDS_HUMAN`, `TAKEN_OVER → GATING`: human handling.
+- `STALE → QUEUED`: re-run after a contract change.
+"Any state → CANCELLED" excludes MERGED and CANCELLED; "any state → STALE" excludes DRAFT, CANCELLED and STALE.
+
+## 2026-10-14 · ErrorKind `session_expired`
+Added to the PRD's `ErrorKind` list so the outer loop can tell "resume failed, start fresh on the same branch" apart from a crash.
+
+## 2026-10-14 · `started` event timing
+The process runner emits `started` on the first output line (so it can carry the vendor session id, which every CLI prints first), or at exit if there was no output. It always carries the pid.

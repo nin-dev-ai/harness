@@ -1,7 +1,11 @@
 import { defineConfig } from "vitest/config";
 
+// Workspace packages resolve to src/ through the "source" export condition.
+const conditions = ["source", "import", "node", "default"];
+
 export default defineConfig({
-  resolve: { conditions: ["source"] },
+  resolve: { conditions },
+  ssr: { resolve: { conditions, externalConditions: conditions } },
   test: {
     include: [
       "packages/*/src/**/*.test.{ts,tsx}",
