@@ -312,6 +312,18 @@ export class EnginePlugin implements DaemonPlugin {
         e.kick();
         return { burst: a.enabled };
       },
+      "pr.evidence": (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ taskId: z.string().optional() }), params);
+        return prEvidence(p, a.taskId);
+      },
+      "pr.record": (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ url: z.string(), branch: z.string(), taskIds: z.array(z.string()) }), params);
+        for (const id of a.taskIds) if (!p.store.events.exists(p.id, "pr.opened", id)) p.emit("pr.opened", { url: a.url, branch: a.branch }, { taskId: id });
+        if (!a.taskIds.length) p.emit("pr.opened", { url: a.url, branch: a.branch });
+        return { recorded: a.taskIds.length };
+      },
       "events.list": (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ afterSeq: z.number().optional(), limit: z.number().optional(), taskId: z.string().optional() }), params);
@@ -377,4 +389,42 @@ export function parseBudget(window: "5h" | "7d" | "budget", text: string): { key
   if (!m) throw new HarnessError("VALIDATION", `expected a budget like "40 runs/day" or "120 minutes/week", got "${text}"`);
   const unit = m[2]!.startsWith("run") ? "runs" : m[2]!.startsWith("min") ? "minutes" : "pct";
   return { key: "manual_budget", value: { unit, per: m[3], amount: Number(m[1]) } };
+}
+
+/** Everything a PR body needs, from the event log. Also says if a PR already exists. */
+export function prEvidence(p: ProjectRuntime, taskId?: string) {
+  const cfg = p.config;
+  const tasks = taskId ? [p.task(taskId)] : p.tasks(["MERGED"]);
+  if (taskId && !["PR_READY", "MERGED"].includes(tasks[0]!.state)) throw new HarnessError("CONFLICT", `${taskId} is ${tasks[0]!.state}; only PR_READY or MERGED tasks get a PR`);
+  if (!tasks.length) throw new HarnessError("CONFLICT", "no merged tasks on the integration branch yet");
+  const head = taskId ? tasks[0]!.branch! : cfg.integration_branch;
+  const existing = p.store.events.list({ projectId: p.id, types: ["pr.opened"] }).find((e) => e.type === "pr.opened" && e.payload.branch === head);
+  const evTasks = tasks.map((t) => {
+    const runs = p.store.runs.listByTask(p.id, t.id);
+    const gate = p.store.events.list({ projectId: p.id, taskId: t.id, types: ["gate.passed"] }).at(-1);
+    const review = runs.filter((r) => r.kind === "review");
+    let tokensIn: number | null = null;
+    let tokensOut: number | null = null;
+    let costUsd: number | null = null;
+    for (const e of p.store.events.list({ projectId: p.id, taskId: t.id, types: ["run.event"] })) {
+      if (e.type !== "run.event" || e.payload.event.type !== "usage") continue;
+      const u = e.payload.event;
+      if (u.tokensIn !== undefined) tokensIn = (tokensIn ?? 0) + u.tokensIn;
+      if (u.tokensOut !== undefined) tokensOut = (tokensOut ?? 0) + u.tokensOut;
+      if (u.costUsd !== undefined) costUsd = (costUsd ?? 0) + u.costUsd;
+    }
+    return {
+      id: t.id, title: t.title, role: t.role, route: runs.find((r) => r.kind !== "review")?.route ?? cfg.roles[t.role]?.route ?? "?", attempts: t.attempts,
+      checks: gate?.runId ? p.store.runs.checkResults(gate.runId).map((c) => ({ checkId: c.checkId, ok: c.ok, durationMs: c.durationMs, required: c.required })) : [],
+      findings: review.flatMap((r) => p.store.runs.findings(r.id)).map((f) => ({ severity: f.severity, file: f.file, line: f.line, message: f.message })),
+      runs: runs.length, tokensIn, tokensOut, costUsd,
+    };
+  });
+  return {
+    evidence: { project: cfg.project, base: cfg.base_branch, head, tasks: evTasks },
+    title: taskId ? `${tasks[0]!.id}: ${tasks[0]!.title}` : `harness: ${tasks.length} task(s) from ${cfg.integration_branch}`,
+    existing: existing?.type === "pr.opened" ? existing.payload.url : null,
+    firstPush: !p.store.events.list({ projectId: p.id, types: ["pr.opened"], limit: 1 }).length,
+    taskIds: tasks.map((t) => t.id),
+  };
 }

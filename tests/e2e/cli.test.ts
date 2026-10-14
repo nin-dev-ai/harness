@@ -5,6 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { main } from "../../apps/cli/src/main.js";
 import { StatusJsonSchema, type StatusJson } from "../../apps/cli/src/schemas.js";
 import { parseUntil } from "../../apps/cli/src/commands/run.js";
+import { prDeps } from "../../apps/cli/src/commands/pr.js";
+import { execaRunner, type Runner } from "@harness/github";
+import { execFileSync } from "node:child_process";
 import type { Io } from "../../apps/cli/src/io.js";
 import { createTempRepo, type TempRepo } from "../helpers/temp-repo.js";
 import { DEFAULT_CHECKS, DEFAULT_CONFIG } from "../helpers/scenario.js";
@@ -149,6 +152,56 @@ describe("cli", () => {
     const tasks = (await status()).tasks.filter((t) => t.title.startsWith("Quote"));
     expect(tasks.map((t) => [t.state, t.dependsOn.length])).toEqual([["DRAFT", 0], ["DRAFT", 1]]);
     expect((await sh("plan", "nope.md")).code).toBe(2);
+  }, 30_000);
+
+  it("opens a draft PR with evidence through gh, once, and never merges", async () => {
+    const origin = fs.mkdtempSync(path.join(os.tmpdir(), "harness-origin-"));
+    execFileSync("git", ["init", "-q", "--bare", origin]);
+    repo.git("remote", "add", "origin", origin);
+    const ghCalls: string[][] = [];
+    const saved = prDeps.run;
+    const fake: Runner = async (cmd, args, opts) => {
+      if (cmd === "git") return execaRunner(cmd, args, opts);
+      ghCalls.push(args);
+      if (args.includes("merge")) throw new Error("merge must never be called");
+      if (args[0] === "pr" && args[1] === "list") return { stdout: "[]", stderr: "", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "create") return { stdout: "https://github.com/acme/demo/pull/1", stderr: "", exitCode: 0 };
+      return { stdout: "gh version 2.0", stderr: "", exitCode: 0 };
+    };
+    prDeps.run = fake;
+    try {
+      const dry = await sh("pr", "--dry-run");
+      expect(dry.out).toContain("| T-001 | API | backend | slow | 1 | 1/1 passed | clean |");
+      expect(dry.out).toContain("✅ unit");
+      expect((await sh("pr")).code).toBe(1); // first push needs confirmation
+      const r = await sh("pr", "--yes");
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("Opened draft PR: https://github.com/acme/demo/pull/1");
+      expect(execFileSync("git", ["--git-dir", origin, "branch", "--list"], { encoding: "utf8" })).toContain("harness/integration");
+      expect(execFileSync("git", ["--git-dir", origin, "branch", "--list"], { encoding: "utf8" })).not.toContain("main");
+      const create = ghCalls.find((a) => a[1] === "create")!;
+      expect(create).toEqual(expect.arrayContaining(["--draft", "--base", "main", "--head", "harness/integration"]));
+      expect((await sh("pr")).out).toContain("A PR already exists");
+      expect(ghCalls.filter((a) => a[1] === "create")).toHaveLength(1);
+      expect(ghCalls.some((a) => a.includes("merge"))).toBe(false);
+    } finally {
+      prDeps.run = saved;
+      fs.rmSync(origin, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("imports labeled issues as one draft task each, across reruns", async () => {
+    const saved = prDeps.run;
+    prDeps.run = async (_cmd, args) =>
+      args[0] === "issue"
+        ? { stdout: JSON.stringify([{ number: 12, title: "Crash on empty list", body: "Steps...", url: "https://github.com/acme/demo/issues/12" }]), stderr: "", exitCode: 0 }
+        : { stdout: "", stderr: "", exitCode: 0 };
+    try {
+      expect((await sh("task", "import-issues", "--role", "backend")).out).toContain("1 new draft task(s)");
+      expect((await sh("task", "import-issues", "--role", "backend")).out).toContain("0 new draft task(s)");
+    } finally {
+      prDeps.run = saved;
+    }
   }, 30_000);
 
   it("uses exit codes 2 for usage errors and 3 when the daemon is unreachable", async () => {
