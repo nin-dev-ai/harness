@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/harness-spike/cursor","session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with exactly: OK"}]},"session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3"}
+{"type":"thinking","subtype":"delta","text":"The response will be","session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3","timestamp_ms":1791995143350}
+{"type":"thinking","subtype":"delta","text":" exactly \"OK\".","session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3","timestamp_ms":1791995143354}
+{"type":"thinking","subtype":"completed","session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3","timestamp_ms":1791995143354}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3"}
+{"type":"result","subtype":"success","duration_ms":5947,"duration_api_ms":5947,"is_error":false,"result":"OK","session_id":"9d3fe322-9fe9-4450-b7e9-1246f2b337e3","request_id":"acc7fb04-9a7b-4555-99da-4f2d7df8892a","usage":{"inputTokens":10396,"outputTokens":25,"cacheReadTokens":3840,"cacheWriteTokens":0}}

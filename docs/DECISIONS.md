@@ -36,3 +36,12 @@ The PRD mentions "an ordered fallback list of routes" but its YAML example has n
 
 ## 2026-10-14 · Check environment
 "A clean environment limited to `env_pass`" would leave checks without `PATH`, so nothing could start. Checks get `PATH, HOME, TMPDIR, LANG, SHELL, USER` plus `env_pass`, plus `CI=1`, `NO_COLOR=1`, `FORCE_COLOR=0`. No credentials or other variables pass through.
+
+## 2026-10-14 · M5 findings vs. the "Expected invocations" table (D2 answered)
+- **Claude usage is available headless.** `rate_limit_event` in `stream-json` carries both windows with utilization and reset times. No status-line helper is needed. Windows are source `vendor`.
+- **Codex `exec --json` has no limit data.** Codex's own session log (`~/.codex/sessions/**/rollout-*-<thread>.jsonl`, not an auth file) records `rate_limits.primary/secondary`. The adapter reads the newest `token_count` entry for the thread it just ran and reports it as source `vendor`. If the file is missing, it falls back to `inferred`. Credentials are never read.
+- **Codex resume** is `codex exec resume <id> <prompt>` and doesn't accept `-s`. The sandbox is passed as `-c sandbox_mode="…"`.
+- **Codex and Cursor need stdin closed**, or they wait for input.
+- **Cursor binary** is `cursor-agent` on this machine. The adapter tries `agent`, then `cursor-agent`.
+- **Cursor resume of an unknown id** silently starts a fresh chat (exit 0), so `session_expired` can't be detected for Cursor. Resumed runs still get the checkpoint summary in the prompt, so a fresh chat has enough context.
+- **Read-only Cursor** uses `--mode plan` rather than just leaving out `--force`.
