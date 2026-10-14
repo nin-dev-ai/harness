@@ -92,3 +92,12 @@ With a real Claude Pro account at 62% (5h) and 33% (7d) with ~5 days to the week
 
 ## 2026-10-14 · Chat-first UI (user request)
 The terminal UI is now chat-first, like Claude Code. A chat bar is always focused; `/` opens a slash-command menu; Tab switches agent tabs. Plain text goes to the selected agent: a running agent stops at a safe point (work checkpointed) and resumes on its same session with the message (`human.message` event, `message.md` prompt). An idle agent turns it into a new approved task, and the planner turns it into a plan. Themes (neon, sunset, matrix, ocean, agnoster with powerline glyphs, mono) are remembered in `~/.harness/ui.json`. Plain `harness` in a repo with no `harness.yaml` runs `init` itself before opening. The PRD's single-key bindings are replaced by slash commands, since every key now types into the chat bar.
+
+## 2026-10-14 · Management panel instead of chat UI (user feedback)
+The chat-first UI felt like a second Claude Code and its colors were distracting. The screen is now a management panel:
+- an agent table (tool/model, status, task, time, context tokens, cost);
+- a detail pane for the selected agent (brief, acceptance, files with +/-, last gate, attempt, current action, branch, needs-you and approvals);
+- a one-line queue of things needing a person;
+- a `/` command line.
+
+There is no output stream on the main screen. The palette is neutral, with one accent for the selection and yellow/red only for waiting or problems. Setup is a first-run wizard (tools, agents, per-agent tool/model/write scope/count) that writes harness.yaml. `harness setup` reruns it. Messages to agents remain available as `/msg`.

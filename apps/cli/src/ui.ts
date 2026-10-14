@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { CONFIG_FILE } from "@harness/config";
-import { harnessHome } from "@harness/daemon";
-import { isGitRepo, repoRoot } from "@harness/workspace";
+import { CONFIG_FILE, configFromWizard, writeFileAtomic } from "@harness/config";
+import { slugify } from "@harness/core";
+import { git, isGitRepo, repoRoot } from "@harness/workspace";
 import type { Ctx } from "./ctx.js";
 import { openProject, type ProjectSession } from "./commands/_client.js";
-import { initProject } from "./commands/init.js";
+import { detectVendors, initProject } from "./commands/init.js";
 import { CliExit, EXIT } from "./io.js";
 
 /** Takeover: pause at a safe point, run the vendor's interactive CLI in the worktree, then ask what next. */
@@ -26,24 +26,51 @@ export async function attachFlow(ctx: Ctx, sess: ProjectSession, target: string)
   ctx.io.out(resume ? `${r.taskId} handed back to the scheduler.` : `${r.taskId} stays with you (TAKEN_OVER). \`harness task requeue ${r.taskId}\` hands it back.`);
 }
 
+/** Top-level folders (and src/* ones) of a repo, to suggest write scopes. */
+async function repoFolders(root: string): Promise<string[]> {
+  const files = (await git(root, ["ls-files"]).catch(() => "")).split("\n").filter(Boolean);
+  const out = new Set<string>();
+  for (const f of files) {
+    const parts = f.split("/");
+    if (parts.length > 1) out.add(parts[0]!);
+    if (parts.length > 2 && parts[0] === "src") out.add(`src/${parts[1]}`);
+  }
+  for (const d of fs.readdirSync(root, { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules") out.add(d.name);
+  return [...out].sort();
+}
+
+/** The guided setup: writes harness.yaml from the wizard, then checks.yaml and .gitignore. Returns false if cancelled. */
+export async function setupWizard(ctx: Ctx, root: string): Promise<boolean> {
+  const { runWizard } = await import("@harness/tui");
+  const d = await detectVendors();
+  const tools = (["claude", "codex", "cursor"] as const).map((v) => ({ vendor: v, installed: d[v].installed, signedIn: d[v].signedIn, version: d[v].version, fixHint: d[v].fixHint }));
+  const agents = await runWizard({ project: path.basename(root), tools, folders: await repoFolders(root) });
+  if (!agents) return false;
+  // Cursor: an API key if one is set, else the signed-in account.
+  const auth = (v: string) => (v === "cursor" && !ctx.io.env.CURSOR_API_KEY ? "subscription" : undefined);
+  writeFileAtomic(path.join(root, CONFIG_FILE), configFromWizard(slugify(path.basename(root)) || "project", agents.map((a) => ({ ...a, ...(auth(a.vendor) ? { auth: auth(a.vendor)! } : {}) }))));
+  await initProject(ctx, { baseline: false, quiet: true });
+  return true;
+}
+
 /**
- * `harness` with no command, like `claude`: sets up a new repo on first use,
- * then opens the chat UI. Closing it never stops the agents (/stop does).
+ * `harness` with no command, like `claude`: runs the setup wizard in a new
+ * repo, then opens the management panel. Closing it never stops the agents.
  */
 export async function openUi(ctx: Ctx): Promise<void> {
   if (!process.stdout.isTTY) throw new CliExit(EXIT.usage, "the terminal UI needs a TTY; use `harness status` in scripts");
   const dir = ctx.dir();
   if (!(await isGitRepo(dir))) throw new CliExit(EXIT.failed, `${dir} is not a git repository. Run \`git init\` here (or cd into a repo), then \`harness\`.`);
   let welcome: string | undefined;
-  if (!fs.existsSync(path.join(await repoRoot(dir), CONFIG_FILE))) {
-    ctx.io.out("✦ first time here: setting up harness for this repo…");
-    const r = await initProject(ctx, { baseline: false, quiet: true });
-    welcome = r.vendors.length
-      ? `set up harness.yaml with ${r.vendors.join(", ")} (edit it any time) and .harness/checks.yaml from your repo`
-      : "set up harness.yaml, but no signed-in claude, codex or cursor-agent was found: run `harness doctor`";
+  const root = await repoRoot(dir);
+  if (!fs.existsSync(path.join(root, CONFIG_FILE))) {
+    if (!(await setupWizard(ctx, root))) {
+      ctx.io.out("setup cancelled; nothing was written.");
+      return;
+    }
+    welcome = "saved harness.yaml and .harness/checks.yaml. Add work with /task <title> @role or /plan <file>, then r to run.";
   }
   const { runTui } = await import("@harness/tui");
-  const prefsFile = path.join(harnessHome(ctx.io.env), "ui.json");
   for (;;) {
     const sess = await openProject(ctx.io, dir);
     const api = {
@@ -55,13 +82,13 @@ export async function openUi(ctx: Ctx): Promise<void> {
     };
     let exit;
     try {
-      exit = await runTui(api, { prefsFile, ...(welcome ? { welcome } : {}) });
+      exit = await runTui(api, welcome ? { welcome } : {});
       welcome = undefined;
     } finally {
       if (exit?.action !== "attach") sess.close();
     }
     if (exit.action === "quit") {
-      ctx.io.out("✦ bye. Agents keep working; type `harness` to come back.");
+      ctx.io.out("panel closed. Agents keep working; type `harness` to come back.");
       return;
     }
     if (exit.action === "stop") {

@@ -1,28 +1,37 @@
 import { Box, Text } from "ink";
 import { COMMANDS } from "../commands.js";
-import type { Theme } from "../theme.js";
-import { GradientText } from "./Logo.js";
+import { C } from "../theme.js";
 
-export function Help({ t }: { t: Theme }) {
+export function Help() {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.accent} paddingX={1}>
-      <GradientText text="✦ what you can type" t={t} bold />
-      <Text> </Text>
+    <Box flexDirection="column" paddingX={1}>
+      <Text bold>Keys</Text>
       <Text>
-        <Text color={t.you}>plain text</Text> → talks to the selected agent (it pauses safely, reads it, carries on).
+        <Text color={C.dim}>{"↑ ↓".padEnd(10)}</Text>select an agent
       </Text>
-      <Text>{"             "}On an idle agent it becomes a new task for that agent. On the planner it becomes a plan.</Text>
+      <Text>
+        <Text color={C.dim}>{"enter".padEnd(10)}</Text>review the selected agent's task (checks, findings, files)
+      </Text>
+      <Text>
+        <Text color={C.dim}>{"/".padEnd(10)}</Text>command line
+      </Text>
+      <Text>
+        <Text color={C.dim}>{"r  p".padEnd(10)}</Text>run the scheduler · pause the selected agent's task
+      </Text>
+      <Text>
+        <Text color={C.dim}>{"q".padEnd(10)}</Text>close the panel (agents keep working)
+      </Text>
       <Text> </Text>
+      <Text bold>Commands</Text>
       {COMMANDS.map((c) => (
         <Text key={c.name}>
-          <Text color={t.accent}>{`/${c.name}`.padEnd(10)}</Text>
-          <Text color={t.dim}>{c.args.padEnd(26)}</Text>
+          <Text color={C.accent}>{`/${c.name}`.padEnd(10)}</Text>
+          <Text color={C.dim}>{c.args.padEnd(32)}</Text>
           {c.desc}
         </Text>
       ))}
       <Text> </Text>
-      <Text color={t.dim}>Tab / Shift-Tab switch agents · ↑↓ history · PgUp/PgDn scroll · Esc close · Ctrl-C clear/quit</Text>
-      <Text color={t.dim}>The daemon owns all state: closing this screen never stops the agents.</Text>
+      <Text color={C.dim}>Agents are set in harness.yaml (the first-run wizard writes it). esc closes this.</Text>
     </Box>
   );
 }

@@ -15,6 +15,12 @@ export interface Toast {
   at: number;
 }
 
+export interface TaskDetail {
+  body: string;
+  acceptance: string[];
+  runs: { id: string; kind: string; state: string; route: string; checks: { checkId: string; ok: boolean }[] }[];
+}
+
 export interface FileStat {
   path: string;
   insertions: number;
@@ -36,6 +42,10 @@ export class TuiStore {
   readonly local = new Map<string, Entry[]>();
   readonly files = new Map<string, FileStat[]>();
   readonly cost = new Map<string, { tokensIn: number; tokensOut: number; usd: number | null }>();
+  /** Input tokens of the latest turn per task: how much context the agent is carrying. */
+  readonly context = new Map<string, number>();
+  /** Task specs (brief, acceptance) and run summaries, from task.show. */
+  readonly details = new Map<string, TaskDetail>();
   readonly lastTaskByWorker = new Map<string, string>();
   toasts: Toast[] = [];
   private loaded = new Set<string>();
@@ -109,6 +119,7 @@ export class TuiStore {
       const u = e.payload.event;
       const c = this.cost.get(e.taskId) ?? { tokensIn: 0, tokensOut: 0, usd: null };
       c.tokensIn += u.tokensIn ?? 0;
+      if (u.tokensIn) this.context.set(e.taskId, u.tokensIn);
       c.tokensOut += u.tokensOut ?? 0;
       if (u.costUsd !== undefined) c.usd = (c.usd ?? 0) + u.costUsd;
       this.cost.set(e.taskId, c);
@@ -122,14 +133,15 @@ export class TuiStore {
       const entry = toEntry(e);
       if (entry) this.add(e.taskId, entry);
       if (e.type === "run.event" && e.payload.event.type === "file_change") this.scheduleFiles(e.taskId);
-      if (e.type === "run.finished" || e.type === "branch.merged") this.scheduleFiles(e.taskId);
+      if (e.type === "run.finished" || e.type === "branch.merged" || e.type === "gate.passed" || e.type === "gate.failed") {
+        this.scheduleFiles(e.taskId);
+        void this.loadDetail(e.taskId);
+      }
     }
-    if (e.type === "branch.merged") this.toast(`🎉 ${e.taskId} merged into ${e.payload.into}`, "ok");
-    else if (e.type === "task.needs_human") this.toast(`🙋 ${e.taskId} needs you: ${e.payload.reason}`, "err");
-    else if (e.type === "route.paused") this.toast(`⏸  ${e.payload.route} paused${e.payload.until ? ` until ${new Date(e.payload.until).toTimeString().slice(0, 5)}` : ""}`, "warn");
-    else if (e.type === "route.resumed") this.toast(`▶  ${e.payload.route} resumed`, "ok");
-    else if (e.type === "approval.requested") this.toast(`🔐 ${e.payload.approvalId}: ${e.payload.context}  (/approve ${e.payload.approvalId})`, "warn");
-    else if (e.type === "review.passed") this.toast(`👀 ${e.taskId} review passed`, "ok");
+    if (e.type === "branch.merged") this.toast(`${e.taskId} merged into ${e.payload.into}`, "info");
+    else if (e.type === "task.needs_human") this.toast(`${e.taskId} needs you: ${e.payload.reason}`, "err");
+    else if (e.type === "route.paused") this.toast(`${e.payload.route} paused${e.payload.until ? ` until ${new Date(e.payload.until).toTimeString().slice(0, 5)}` : ""}`, "warn");
+    else if (e.type === "approval.requested") this.toast(`${e.payload.approvalId} waiting for you: ${e.payload.context}  (/approve ${e.payload.approvalId})`, "warn");
     this.scheduleRefresh();
     this.emit();
   }
@@ -175,6 +187,23 @@ export class TuiStore {
     } catch {
       // no worktree yet
     }
+  }
+
+  async loadDetail(taskId: string): Promise<void> {
+    try {
+      const r = await this.api.call<{ spec: { body: string; front: { acceptance: string[] } } | null; runs: TaskDetail["runs"] }>("task.show", { id: taskId });
+      this.details.set(taskId, { body: r.spec?.body ?? "", acceptance: r.spec?.front.acceptance ?? [], runs: r.runs ?? [] });
+      this.emit();
+    } catch {
+      // unknown task
+    }
+  }
+
+  /** The most recent thing an agent did on a task (for the "now" line). */
+  lastActivity(taskId: string): Entry | undefined {
+    const list = this.entries.get(taskId) ?? [];
+    for (let i = list.length - 1; i >= 0; i--) if (["say", "tool", "edit", "check"].includes(list[i]!.kind)) return list[i];
+    return undefined;
   }
 
   /** The task an agent is on now, else the last one it worked on. */

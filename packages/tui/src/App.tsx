@@ -4,18 +4,14 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { StatusSnapshot, WorkerView } from "@harness/daemon";
 import { completions, parseInput } from "./commands.js";
-import { AgentTabs } from "./components/AgentTabs.js";
-import { ChatBar } from "./components/ChatBar.js";
+import { AgentTable, type AgentRow } from "./components/AgentTable.js";
+import { CommandLine } from "./components/CommandLine.js";
+import { DetailPane, type DetailLine } from "./components/DetailPane.js";
 import { Help } from "./components/Help.js";
-import { Banner, GradientText } from "./components/Logo.js";
 import { ReviewView, type ReviewData } from "./components/ReviewView.js";
-import { Sidebar } from "./components/Sidebar.js";
-import { StatusLine } from "./components/StatusLine.js";
-import { Stream } from "./components/Stream.js";
-import { UsagePills } from "./components/UsagePills.js";
-import { bar, resetText } from "./format.js";
+import { resetText } from "./format.js";
 import type { TuiStore } from "./store.js";
-import { THEME_NAMES, THEMES, VENDOR, type Theme } from "./theme.js";
+import { C, stateColor } from "./theme.js";
 
 /** Why the UI closed: the caller acts on it (attach runs a CLI, stop stops the daemon). */
 export type UiExit = { action: "quit" } | { action: "stop" } | { action: "attach"; target: string };
@@ -25,21 +21,38 @@ export interface AppProps {
   onExit(r: UiExit): void;
   /** Fixed size for tests. */
   size?: { columns: number; rows: number };
-  theme?: string;
-  onTheme?(name: string): void;
-  /** Shown once in the stream when the UI opens (e.g. "set up harness.yaml for you"). */
+  /** Shown once at the bottom when the panel opens. */
   welcome?: string;
 }
 
-type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "review" | "diff"; data: ReviewData };
+type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "tasks" } | { kind: "review" | "diff"; data: ReviewData };
 
 const taskId = (s: string) => {
-  const t = s.trim().toUpperCase();
-  const m = /^T?-?(\d+)$/.exec(t);
-  return m ? `T-${String(Number(m[1])).padStart(3, "0")}` : t;
+  const m = /^T?-?(\d+)$/i.exec(s.trim());
+  return m ? `T-${String(Number(m[1])).padStart(3, "0")}` : s.trim().toUpperCase();
 };
 
-export function App({ store, onExit, size, theme: themeName, onTheme, welcome }: AppProps) {
+const fmtTokens = (n: number | undefined) => (n === undefined ? "—" : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+function statusOf(w: WorkerView): { label: string; color?: string | undefined } {
+  if (w.state === "RUNNING") {
+    if (w.waitingReason === "gating") return { label: "checking" };
+    if (w.runKind === "repair") return { label: "fixing" };
+    if (w.runKind === "review") return { label: "reviewing" };
+    if (w.runKind === "plan") return { label: "planning" };
+    return { label: "working" };
+  }
+  if (w.state === "WAITING") return { label: "waiting", color: C.warn };
+  if (w.state === "PAUSED") return { label: "paused", color: C.warn };
+  if (w.state === "FAILED") return { label: "failed", color: C.bad };
+  return { label: "idle", color: C.dim };
+}
+
+/**
+ * The management panel: who is working on what, with what context. No
+ * output stream here; enter opens the evidence for a task, `/` runs commands.
+ */
+export function App({ store, onExit, size, welcome }: AppProps) {
   const [, force] = useReducer((n: number) => n + 1, 0);
   useEffect(() => store.onChange(force), [store]);
   const snap: StatusSnapshot | null = store.snapshot;
@@ -48,59 +61,51 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   const columns = size?.columns ?? stdout.columns ?? 120;
   const rows = size?.rows ?? stdout.rows ?? 40;
 
-  const [t, setTheme] = useState<Theme>(THEMES[themeName ?? "neon"] ?? THEMES.neon!);
   const [sel, setSel] = useState(0);
-  const [pinnedTask, setPinnedTask] = useState<string | undefined>();
-  const [input, setInput] = useState("");
+  const [cmd, setCmd] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [histPos, setHistPos] = useState(-1);
-  const [scroll, setScroll] = useState(0);
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" });
+  const [scroll, setScroll] = useState(0);
+  const [message, setMessage] = useState<{ text: string; color?: string | undefined } | null>(welcome ? { text: welcome } : null);
   const [frame, setFrame] = useState(0);
-
   useEffect(() => {
-    const id = setInterval(() => setFrame((f) => f + 1), 120);
+    const id = setInterval(() => setFrame((f) => f + 1), 150);
     return () => clearInterval(id);
   }, []);
-  useEffect(() => {
-    if (welcome) store.note("_welcome", "ok", welcome);
-  }, [welcome, store]);
 
   const workers: WorkerView[] = useMemo(() => {
-    const ws = snap?.workers ?? [];
-    const rank = (w: WorkerView) => (w.role === "planner" ? 2 : w.role === "reviewer" ? 1 : 0);
-    return [...ws].sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+    const rank = (w: WorkerView) => (w.state === "RUNNING" ? 0 : w.role === "planner" ? 3 : w.role === "reviewer" ? 2 : 1);
+    return [...(snap?.workers ?? [])].sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
   }, [snap]);
-  // Start on whoever is busy, like opening Claude Code mid-task.
-  const [picked, setPicked] = useState(false);
-  useEffect(() => {
-    if (picked || !workers.length) return;
-    const busy = workers.findIndex((w) => w.state === "RUNNING");
-    if (busy > 0) setSel(busy);
-    setPicked(true);
-  }, [workers, picked]);
   const worker = workers[Math.min(sel, Math.max(0, workers.length - 1))];
-  const view = worker?.id ?? "_";
-  const recentForRole = (role: string) =>
-    [...(snap?.tasks ?? [])].filter((x) => x.role === role && x.lastRunId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id;
-  const currentTask = pinnedTask ?? (worker ? (store.taskForWorker(worker.id) ?? recentForRole(worker.role)) : undefined);
+  const tasks = snap?.tasks ?? [];
+  const nextFor = (w: WorkerView) => {
+    if (w.role === "reviewer") return tasks.find((t) => t.state === "REVIEWING");
+    return tasks.find((t) => t.role === w.role && ["QUEUED", "REPAIRING", "PAUSED"].includes(t.state));
+  };
+  const recentFor = (w: WorkerView) => {
+    const id = store.taskForWorker(w.id);
+    return id ? tasks.find((t) => t.id === id) : [...tasks].filter((t) => t.role === w.role && t.lastRunId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  };
+  const focusTask = worker ? (tasks.find((t) => t.id === worker.taskId) ?? nextFor(worker) ?? recentFor(worker)) : undefined;
+
   useEffect(() => {
-    if (currentTask) void store.loadTask(currentTask);
-  }, [currentTask, store]);
+    if (!focusTask) return;
+    void store.loadTask(focusTask.id);
+    void store.loadDetail(focusTask.id);
+  }, [focusTask?.id, store]);
 
-  const menu = completions(input);
-  const writeRoles = [...new Set(workers.map((w) => w.role))].filter((r) => r !== "reviewer" && r !== "planner");
-
-  const note = (kind: Parameters<TuiStore["note"]>[1], text: string, detail?: string) => store.note(view, kind, text, detail);
+  const say = (text: string, color?: string) => setMessage({ text, color });
   const call = async <T,>(method: string, params: Record<string, unknown> = {}): Promise<T | undefined> => {
     try {
       const r = await store.api.call<T>(method, params);
       void store.refresh();
       return r;
     } catch (e) {
-      note("err", (e as Error).message);
+      say((e as Error).message, C.bad);
       return undefined;
     }
   };
@@ -108,401 +113,371 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
     onExit(r);
     exit();
   };
-  const select = (i: number) => {
-    setSel(((i % Math.max(1, workers.length)) + workers.length) % Math.max(1, workers.length));
-    setPinnedTask(undefined);
-    setScroll(0);
-  };
   const openReview = async (kind: "review" | "diff", id?: string) => {
-    const tid = id ? taskId(id) : currentTask;
-    if (!tid) return note("warn", "no task here yet");
+    const tid = id ? taskId(id) : focusTask?.id;
+    if (!tid) return say("no task for this agent yet", C.warn);
     const r = await call<ReviewData>("review.show", { id: tid });
     if (r) {
       setScroll(0);
       setOverlay({ kind, data: r });
     }
   };
+  const writeRoles = [...new Set(workers.map((w) => w.role))].filter((r) => r !== "reviewer" && r !== "planner");
 
   async function run(raw: string): Promise<void> {
     const p = parseInput(raw);
     if (p.kind === "empty") return;
-    if (p.kind === "message") return send(p.text);
-    if (!p.known) return note("warn", `unknown command /${p.name}. Type /help`);
+    if (!p.known) return say(`unknown command /${p.name} (type /help)`, C.warn);
     const a = p.args;
+    const current = focusTask?.id;
     switch (p.name) {
       case "help":
         return setOverlay({ kind: "help" });
       case "usage":
         return setOverlay({ kind: "usage" });
+      case "tasks":
+        return setOverlay({ kind: "tasks" });
       case "quit":
         return quit({ action: "quit" });
       case "stop":
         return quit({ action: "stop" });
-      case "clear":
-        store.local.delete(view);
-        if (currentTask) store.entries.set(currentTask, []);
-        return force();
-      case "theme": {
-        const name = a || THEME_NAMES[(THEME_NAMES.indexOf(t.name) + 1) % THEME_NAMES.length]!;
-        const next = THEMES[name];
-        if (!next) return note("warn", `themes: ${THEME_NAMES.join(", ")}`);
-        setTheme(next);
-        onTheme?.(name);
-        return note("ok", `theme: ${name}${next.powerline ? " (needs a powerline font)" : ""}`);
-      }
-      case "switch": {
-        if (!a) return select(sel + 1);
-        const byWorker = workers.findIndex((w) => w.id === a || w.id.startsWith(a) || w.role === a);
-        if (byWorker >= 0) return select(byWorker);
-        const tid = taskId(a);
-        const task = snap?.tasks.find((x) => x.id === tid);
-        if (!task) return note("warn", `no agent or task "${a}"`);
-        const wi = workers.findIndex((w) => w.role === task.role);
-        if (wi >= 0) setSel(wi);
-        setPinnedTask(tid);
-        return setScroll(0);
-      }
-      case "agents":
-        for (const w of workers) note("sys", `${w.id} (${w.vendor}) ${w.state}${w.taskId ? ` on ${w.taskId} ${w.taskTitle ?? ""}` : w.waitingReason ? ` · ${w.waitingReason}` : ""}`);
-        return;
       case "task": {
         const m = /(?:^|\s)@([\w-]+)\s*$/.exec(a);
-        const role = m?.[1] ?? (worker && writeRoles.includes(worker.role) ? worker.role : writeRoles[0]);
+        const role = m?.[1] ?? (worker && writeRoles.includes(worker.role) ? worker.role : undefined);
         const title = (m ? a.slice(0, m.index) : a).trim();
-        if (!title || !role) return note("warn", "usage: /task <title> [@role]");
-        return createTask(title, role, title);
+        if (!title || !role) return say(`usage: /task <title> @role   (roles: ${writeRoles.join(", ")})`, C.warn);
+        const r = await call<{ id: string }>("task.add", { title, role, approve: true });
+        if (r) say(`${r.id} added for ${role}${snap?.scheduler.running ? "" : " (scheduler stopped: r to run)"}`);
+        return;
       }
       case "plan": {
-        if (!a) return note("warn", "usage: /plan <file.md>   (or type your idea to the planner)");
+        if (!a) return say("usage: /plan <file.md>", C.warn);
         const file = path.resolve(snap?.project.root ?? ".", a);
-        if (!fs.existsSync(file)) return note("err", `no such file: ${a}`);
-        return plan(fs.readFileSync(file, "utf8"), a);
+        if (!fs.existsSync(file)) return say(`no such file: ${a}`, C.bad);
+        say("planning…");
+        const r = await call<{ tasks: { id: string }[] }>("plan", { document: fs.readFileSync(file, "utf8"), source: a });
+        if (r) say(`${r.tasks.length} draft task(s): ${r.tasks.map((t) => t.id).join(", ")}. /approve all to start them`);
+        return;
       }
       case "approve": {
         const arg = a.toLowerCase();
-        if (arg === "all") {
-          const r = await call<{ approved: string[] }>("task.approve", { all: true });
-          if (r) note("ok", r.approved?.length ? `approved ${r.approved.join(", ")} ✅` : "nothing to approve");
-          return;
-        }
+        if (!arg) return say("usage: /approve <T-n|A-n|all>", C.warn);
         if (/^a-\d+$/.test(arg)) {
-          if ((await call("approval.grant", { id: arg.toUpperCase() })) !== undefined) note("ok", `${arg.toUpperCase()} granted 🔓`);
+          if ((await call("approval.grant", { id: arg.toUpperCase() })) !== undefined) say(`${arg.toUpperCase()} granted`);
           return;
         }
-        const tid = a ? taskId(a) : (snap?.tasks.find((x) => x.id === currentTask && x.state === "DRAFT")?.id ?? snap?.approvals[0]?.taskId ?? undefined);
-        if (!tid) return note("warn", "nothing to approve here");
-        const r = await call<{ approved: string[] }>("task.approve", { ids: [tid] });
-        if (r) note("ok", r.approved?.length ? `approved ${r.approved.join(", ")} ✅` : `${tid} has nothing pending`);
+        const r = await call<{ approved?: string[] }>("task.approve", arg === "all" ? { all: true } : { ids: [taskId(arg)] });
+        if (r) say(r.approved?.length ? `approved ${r.approved.join(", ")}` : "nothing to approve");
         return;
       }
+      case "msg":
+        if (!current || !a) return say("usage: /msg <text>   (sent to the selected agent's task)", C.warn);
+        if ((await call("agent.message", { target: current, text: a })) !== undefined) say(`note sent to ${current}`);
+        return;
       case "run":
-        await call("run");
-        return note("ok", "scheduler running 🚀");
+        if ((await call("run")) !== undefined) say("scheduler running");
+        return;
       case "pause":
-        if (a === "all") {
-          await call("pause", { all: true });
-          return note("warn", "paused everything");
-        }
-        if (!currentTask) return note("warn", "nothing to pause here");
-        await call("pause", { task: currentTask });
-        return note("warn", `pausing ${currentTask} (checkpointing first)`);
+        if (a === "all") return void (await call("pause", { all: true }), say("paused everything", C.warn));
+        if (!current) return say("nothing to pause", C.warn);
+        if ((await call("pause", { task: current })) !== undefined) say(`pausing ${current} (work is checkpointed first)`, C.warn);
+        return;
       case "resume":
-        if (a === "all" || !currentTask) {
-          await call("resume", { all: true });
-          return note("ok", "scheduler running 🚀");
-        }
-        await call("resume", { task: currentTask });
-        return note("ok", `resumed ${currentTask}`);
+        if (a === "all" || !current) return void (await call("resume", { all: true }), say("scheduler running"));
+        if ((await call("resume", { task: current })) !== undefined) say(`resumed ${current}`);
+        return;
       case "review":
         return openReview("review", a || undefined);
       case "diff":
         return openReview("diff", a || undefined);
       case "accept": {
-        const tid = a ? taskId(a) : currentTask;
-        if (!tid) return note("warn", "which task?");
+        const tid = a ? taskId(a) : current;
+        if (!tid) return say("which task?", C.warn);
         const r = await call<{ state: string }>("review.accept", { id: tid });
-        if (r) note(r.state === "MERGED" ? "ok" : "warn", `${tid} ${r.state}${r.state === "MERGED" ? " 🎉" : ""}`);
+        if (r) say(`${tid} ${r.state.toLowerCase()}`, r.state === "MERGED" ? undefined : C.warn);
         return;
       }
       case "reject":
-        if (!currentTask || !a) return note("warn", "usage: /reject <comment>  (on the task's agent)");
-        await call("review.reject", { id: currentTask, comment: a });
-        return note("warn", `sent ${currentTask} back`);
+        if (!current || !a) return say("usage: /reject <comment>", C.warn);
+        if ((await call("review.reject", { id: current, comment: a })) !== undefined) say(`${current} sent back`);
+        return;
       case "cancel": {
-        const tid = a ? taskId(a) : currentTask;
-        if (!tid) return note("warn", "which task?");
-        await call("task.cancel", { id: tid });
-        return note("warn", `${tid} cancelled`);
-      }
-      case "burst": {
-        const on = a ? a === "on" : !snap?.scheduler.burst;
-        await call("burst.set", { enabled: on });
-        return note("ok", `burst ${on ? "on ⚡" : "off"}`);
+        const tid = a ? taskId(a) : current;
+        if (!tid) return say("which task?", C.warn);
+        if ((await call("task.cancel", { id: tid })) !== undefined) say(`${tid} cancelled`);
+        return;
       }
       case "limits": {
-        const [route, window, ...v] = a.split(/\s+/);
-        if (!route || !window || !v.length) return note("warn", "usage: /limits <route> <5h|7d|budget> <85% | 40 runs/day>");
-        if ((await call("limits.set", { route, window, budget: v.join(" ") })) !== undefined) note("ok", `${route} ${window} → ${v.join(" ")}`);
+        const [route, win, ...v] = a.split(/\s+/);
+        if (!route || !win || !v.length) return say("usage: /limits <route> <5h|7d|budget> <85% | 40 runs/day>", C.warn);
+        if ((await call("limits.set", { route, window: win, budget: v.join(" ") })) !== undefined) say(`${route} ${win} set to ${v.join(" ")}`);
         return;
       }
       case "attach":
-        if (!currentTask) return note("warn", "no task to take over here");
-        return quit({ action: "attach", target: currentTask });
+        if (!current) return say("no task to take over", C.warn);
+        return quit({ action: "attach", target: current });
     }
   }
 
-  async function createTask(title: string, role: string, body: string) {
-    const short = title.split("\n")[0]!.slice(0, 80);
-    note("you", body);
-    const r = await call<{ id: string }>("task.add", { title: short, role, body: body === short ? "" : body, approve: true });
-    if (!r) return;
-    if (!snap?.scheduler.running) await call("run");
-    note("ok", `✨ ${r.id} created for ${role} and started`);
-    setPinnedTask(r.id);
-  }
-
-  async function plan(document: string, source: string) {
-    note("you", source === "chat" ? document : `/plan ${source}`);
-    note("sys", "the planner is thinking…");
-    const r = await call<{ tasks: { id: string; title: string; role: string }[]; summary: string }>("plan", { document, source });
-    if (!r) return;
-    if (r.summary) note("say", r.summary);
-    for (const x of r.tasks) note("sys", `📝 ${x.id} ${x.role}: ${x.title}`);
-    note("ok", `${r.tasks.length} draft task(s). /approve all to start them`);
-  }
-
-  async function send(text: string) {
-    if (!worker) return note("warn", "no agents configured");
-    if (worker.role === "planner") return plan(text, "chat");
-    const task = currentTask ? snap?.tasks.find((x) => x.id === currentTask) : undefined;
-    if (task && !["MERGED", "CANCELLED", "DRAFT"].includes(task.state)) {
-      const r = await call<{ delivery: string }>("agent.message", { target: task.id, text });
-      if (r) note("sys", r.delivery === "now" ? `delivered to ${task.id} ✉️` : r.delivery === "sent-back" ? `${task.id} sent back with your note` : `${task.id} will read it on its next turn`);
-      return;
-    }
-    if (worker.role === "reviewer") return note("sys", "the reviewer checks work automatically once its checks pass. Switch to an agent with Tab");
-    return createTask(text, worker.role, text);
-  }
-
-  const submit = (override?: string) => {
-    let text = override ?? input;
-    if (menu.length && /^\/\S*$/.test(text)) {
-      const c = menu[Math.min(menuIndex, menu.length - 1)]!;
-      if (c.args && text !== `/${c.name}`) {
-        setInput(`/${c.name} `);
-        setCursor(c.name.length + 2);
-        return;
-      }
-      text = `/${c.name}`;
-    }
-    if (text.trim()) setHistory((h) => [...h.filter((x) => x !== text), text].slice(-100));
-    setHistPos(-1);
-    setInput("");
+  const closeCmd = () => {
+    setCmd(null);
     setCursor(0);
     setMenuIndex(0);
-    void run(text);
+    setHistPos(-1);
+  };
+  const submitCmd = (text: string) => {
+    const menu = completions(text);
+    let line = text;
+    if (menu.length && !/\s/.test(text.trim())) {
+      const c = menu[Math.min(menuIndex, menu.length - 1)]!;
+      if (c.args && text.trim() !== c.name) {
+        setCmd(`${c.name} `);
+        setCursor(c.name.length + 1);
+        return;
+      }
+      line = c.name;
+    }
+    if (line.trim()) setHistory((h) => [...h.filter((x) => x !== line), line].slice(-50));
+    closeCmd();
+    void run(line);
   };
 
   useInput((ch, key) => {
-    if (key.ctrl && ch === "c") {
-      if (input) {
-        setInput("");
-        setCursor(0);
-      } else quit({ action: "quit" });
-      return;
-    }
-    if (key.ctrl && ch === "d") return quit({ action: "quit" });
-    if (key.ctrl && ch === "l") return void run("/clear");
-    if (key.escape) {
-      if (overlay.kind !== "none") return setOverlay({ kind: "none" });
-      setInput("");
-      setCursor(0);
-      return;
-    }
-    if (key.pageUp) return setScroll((s) => s + 10);
-    if (key.pageDown) return setScroll((s) => Math.max(0, s - 10));
-    if (key.tab) {
-      if (menu.length) {
+    // command line mode
+    if (cmd !== null) {
+      const menu = completions(cmd);
+      if (key.escape || (key.ctrl && ch === "c")) return closeCmd();
+      if (key.return) return submitCmd(cmd);
+      if (key.tab && menu.length) {
         const c = menu[Math.min(menuIndex, menu.length - 1)]!;
-        setInput(`/${c.name}${c.args ? " " : ""}`);
-        setCursor(c.name.length + 1 + (c.args ? 1 : 0));
+        setCmd(`${c.name}${c.args ? " " : ""}`);
+        setCursor(c.name.length + (c.args ? 1 : 0));
         return;
       }
-      return select(sel + (key.shift ? -1 : 1));
-    }
-    if (key.return) return submit();
-    if (key.upArrow) {
-      if (menu.length) return setMenuIndex((i) => Math.max(0, i - 1));
-      if (overlay.kind === "diff") return setScroll((s) => Math.max(0, s - 1));
-      if (!history.length) return;
-      const pos = histPos < 0 ? history.length - 1 : Math.max(0, histPos - 1);
-      setHistPos(pos);
-      setInput(history[pos]!);
-      setCursor(history[pos]!.length);
-      return;
-    }
-    if (key.downArrow) {
-      if (menu.length) return setMenuIndex((i) => Math.min(menu.length - 1, i + 1));
-      if (overlay.kind === "diff") return setScroll((s) => s + 1);
-      if (histPos < 0) return;
-      const pos = histPos + 1;
-      if (pos >= history.length) {
-        setHistPos(-1);
-        setInput("");
-        setCursor(0);
-      } else {
+      if (key.upArrow) {
+        if (menu.length && cmd) return setMenuIndex((i) => Math.max(0, i - 1));
+        if (!history.length) return;
+        const pos = histPos < 0 ? history.length - 1 : Math.max(0, histPos - 1);
         setHistPos(pos);
-        setInput(history[pos]!);
+        setCmd(history[pos]!);
         setCursor(history[pos]!.length);
+        return;
       }
-      return;
-    }
-    if (key.leftArrow) return setCursor((c) => Math.max(0, c - 1));
-    if (key.rightArrow) return setCursor((c) => Math.min(input.length, c + 1));
-    if (key.backspace || key.delete) {
-      if (cursor === 0) return;
-      setInput((v) => v.slice(0, cursor - 1) + v.slice(cursor));
-      setCursor((c) => c - 1);
+      if (key.downArrow) {
+        if (menu.length && cmd) return setMenuIndex((i) => Math.min(menu.length - 1, i + 1));
+        return;
+      }
+      if (key.leftArrow) return setCursor((c) => Math.max(0, c - 1));
+      if (key.rightArrow) return setCursor((c) => Math.min(cmd.length, c + 1));
+      if (key.backspace || key.delete) {
+        if (cursor === 0) return cmd ? undefined : closeCmd();
+        setCmd(cmd.slice(0, cursor - 1) + cmd.slice(cursor));
+        setCursor((c) => c - 1);
+        setMenuIndex(0);
+        return;
+      }
+      if (key.ctrl || key.meta || !ch) return;
+      const nl = ch.search(/[\r\n]/);
+      if (nl >= 0) return submitCmd(cmd.slice(0, cursor) + ch.slice(0, nl) + cmd.slice(cursor));
+      setCmd(cmd.slice(0, cursor) + ch + cmd.slice(cursor));
+      setCursor((c) => c + ch.length);
       setMenuIndex(0);
       return;
     }
-    if (key.ctrl || key.meta || !ch) return;
-    // Pasted text (or a fast terminal) can deliver characters and Enter in one chunk.
-    const nl = ch.search(/[\r\n]/);
-    if (nl >= 0) {
-      const full = input.slice(0, cursor) + ch.slice(0, nl) + input.slice(cursor);
-      if (/^\/\S*$/.test(full.trim()) && completions(full.trim()).length) {
-        // a typed command name submits as-is (no menu completion surprise)
-        setInput("");
-        setCursor(0);
-        setHistory((h) => [...h.filter((x) => x !== full), full].slice(-100));
-        void run(full);
-        return;
-      }
-      return submit(full);
+    // panel mode
+    if (key.escape) {
+      if (overlay.kind !== "none") return setOverlay({ kind: "none" });
+      return setMessage(null);
     }
-    setInput((v) => v.slice(0, cursor) + ch + v.slice(cursor));
-    setCursor((c) => c + ch.length);
-    setMenuIndex(0);
+    if (ch === "/" || ch === ":") {
+      setCmd("");
+      setCursor(0);
+      return;
+    }
+    if (ch === "q" || (key.ctrl && ch === "c")) return quit({ action: "quit" });
+    if (ch === "?") return setOverlay({ kind: "help" });
+    if (overlay.kind === "diff") {
+      if (key.upArrow || ch === "k") return setScroll((s) => Math.max(0, s - 1));
+      if (key.downArrow || ch === "j") return setScroll((s) => s + 1);
+      if (key.pageUp) return setScroll((s) => Math.max(0, s - 20));
+      if (key.pageDown) return setScroll((s) => s + 20);
+      return;
+    }
+    if (key.upArrow || ch === "k") return setSel((i) => Math.max(0, i - 1));
+    if (key.downArrow || ch === "j") return setSel((i) => Math.min(workers.length - 1, i + 1));
+    if (key.return) return void openReview("review");
+    if (ch === "r") return void run("run");
+    if (ch === "p") return void run("pause");
+    if (ch === "d") return void openReview("diff");
   });
 
-  if (!snap) return <Text>{store.error ? `error: ${store.error}` : "✦ connecting to the daemon…"}</Text>;
+  if (!snap) return <Text>{store.error ? `error: ${store.error}` : "connecting to the daemon…"}</Text>;
 
-  // ── layout ────────────────────────────────────────────────────────────
-  const merged = snap.tasks.filter((x) => x.state === "MERGED").length;
-  const active = snap.tasks.filter((x) => ["RUNNING", "GATING", "REPAIRING", "REVIEWING"].includes(x.state)).length;
-  const queued = snap.tasks.filter((x) => ["QUEUED", "PAUSED"].includes(x.state)).length;
-  const needs = snap.tasks.filter((x) => x.state === "NEEDS_HUMAN").length + snap.approvals.length;
-  const toasts = store.toasts.filter((x) => Date.now() - x.at < 8000).slice(-2);
-  const sidebar = columns >= 100;
-  const sideWidth = sidebar ? Math.max(32, Math.floor(columns * 0.32)) : 0;
-  const mainWidth = columns - sideWidth - 1;
-  const menuRows = Math.min(menu.length, 8);
-  const topRows = 3 + Math.ceil(snap.routes.length / 2);
-  const bottomRows = 4 + menuRows + toasts.length;
-  const midRows = Math.max(6, rows - topRows - bottomRows);
-  const entries = store.stream(view, currentTask);
-  const placeholder =
-    worker?.role === "planner"
-      ? "describe what you want built: the planner turns it into tasks"
-      : currentTask && snap.tasks.find((x) => x.id === currentTask && !["MERGED", "CANCELLED"].includes(x.state))
-        ? `message ${worker?.id} about ${currentTask}…   / for commands`
-        : `tell ${worker?.id ?? "an agent"} what to build…   / for commands`;
-  const v = worker ? (VENDOR[worker.vendor] ?? VENDOR.fake!) : VENDOR.fake!;
-  const header = (
-    <Box width={columns} justifyContent="space-between">
-      <Text>
-        <GradientText text="✦ harness" t={t} bold />
-        <Text color={t.dim}> · {snap.project.name}</Text>
-      </Text>
-      <Text color={t.dim}>{new Date().toTimeString().slice(0, 5)}</Text>
-    </Box>
-  );
-  const empty = (
-    <Box flexDirection="column" paddingTop={1}>
-      <Banner t={t} />
-      <Text> </Text>
-      {(store.local.get("_welcome") ?? []).map((w, i) => (
-        <Text key={i} color={t.ok}>
-          ✔ {w.text}
-        </Text>
-      ))}
-      <Text>
-        <Text color={v.color}>{v.icon} </Text>
-        {worker ? `${worker.id} is ${worker.state.toLowerCase()}.` : "No agents yet."} Type what you want and press Enter.
-      </Text>
-      <Text color={t.dim}>Tab switches agents · / opens commands · /help for everything</Text>
-    </Box>
-  );
+  // ── header ────────────────────────────────────────────────────────────
+  const usage = snap.routes
+    .map((r) => {
+      const five = r.windows.find((w) => w.kind === "5h");
+      const seven = r.windows.find((w) => w.kind === "7d");
+      const budget = r.windows.find((w) => w.kind === "budget");
+      const hot = [five, seven].some((w) => w && w.usedPct !== null && w.usedPct >= w.capPct * 0.9);
+      const txt = r.pausedUntil
+        ? `${r.vendor} paused until ${resetText(snap.now, r.pausedUntil).split(" ")[0]}`
+        : budget
+          ? `${r.vendor} ${budget.detail ?? budget.display}`
+          : five || seven
+            ? `${r.vendor} ${[five && `5h ${five.display}`, seven && `7d ${seven.display}`].filter(Boolean).join(" · ")}`
+            : `${r.vendor} usage unknown`;
+      return { txt, color: r.pausedUntil || hot ? C.warn : undefined };
+    })
+    .filter((u, i, all) => all.findIndex((x) => x.txt === u.txt) === i);
+  const working = workers.filter((w) => w.state === "RUNNING").length;
+  const idle = workers.filter((w) => w.state === "IDLE").length;
+  const queued = tasks.filter((t) => ["QUEUED", "PAUSED", "REPAIRING"].includes(t.state)).length;
+  const drafts = tasks.filter((t) => t.state === "DRAFT").length;
+  const needs = tasks.filter((t) => t.state === "NEEDS_HUMAN");
+  const ready = tasks.filter((t) => t.state === "PR_READY");
 
-  let main: React.ReactNode;
-  if (overlay.kind === "help") main = <Help t={t} />;
+  // ── table ─────────────────────────────────────────────────────────────
+  const routeModel = (route: string | null) => snap.routes.find((r) => r.route === route)?.model ?? "default";
+  const tableRows: AgentRow[] = workers.map((w) => {
+    const st = statusOf(w);
+    const live = w.taskId ? tasks.find((t) => t.id === w.taskId) : undefined;
+    const next = !live ? nextFor(w) : undefined;
+    const ctxTask = live?.id ?? undefined;
+    const cost = ctxTask ? store.cost.get(ctxTask)?.usd : undefined;
+    return {
+      id: w.id,
+      tool: `${w.vendor}/${routeModel(w.route)}`,
+      status: st.label,
+      statusColor: st.color,
+      busy: w.state === "RUNNING",
+      task: live ? `${live.id} ${live.title}` : next ? `next: ${next.id} ${next.title}` : w.waitingReason && w.state !== "IDLE" ? w.waitingReason : "",
+      taskDim: !live,
+      elapsedMs: w.elapsedMs,
+      context: ctxTask ? fmtTokens(store.context.get(ctxTask)) : "",
+      cost: cost !== undefined && cost !== null ? `$${cost.toFixed(2)}` : ctxTask ? "—" : "",
+    };
+  });
+
+  // ── detail ────────────────────────────────────────────────────────────
+  const detailLines: DetailLine[] = [];
+  let detailTitle = worker ? `${worker.id}` : "no agents";
+  if (worker && focusTask) {
+    const d = store.details.get(focusTask.id);
+    const files = store.files.get(focusTask.id) ?? [];
+    const lastChecks = [...(d?.runs ?? [])].reverse().find((r) => r.checks.length)?.checks ?? [];
+    const act = store.lastActivity(focusTask.id);
+    detailTitle = `${worker.id} · ${focusTask.id} ${focusTask.title}`;
+    const brief = (d?.body ?? "").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("<!--")) ?? focusTask.title;
+    detailLines.push({ label: "state", value: `${focusTask.state.toLowerCase().replace("_", " ")}${worker.taskId !== focusTask.id ? (["QUEUED", "REPAIRING", "PAUSED"].includes(focusTask.state) ? " (up next)" : " (last task)") : ""}`, color: stateColor(focusTask.state) });
+    detailLines.push({ label: "brief", value: brief });
+    if (d?.acceptance.length) detailLines.push({ label: "accept", value: d.acceptance.map((x) => `· ${x}`).join("   ") });
+    detailLines.push({ label: "files", value: files.length ? files.map((f) => `${f.path} +${f.insertions} -${f.deletions}`).join(" · ") : "no changes yet" });
+    detailLines.push({
+      label: "checks",
+      value: `${lastChecks.length ? `last gate: ${lastChecks.map((c) => `${c.ok ? "✓" : "✗"} ${c.checkId}`).join(" ")}` : "not run yet"}   attempt ${Math.max(1, focusTask.attempts)}/${focusTask.attemptsMax}`,
+      color: lastChecks.some((c) => !c.ok) ? C.warn : undefined,
+    });
+    if (focusTask.dependsOn.length) detailLines.push({ label: "after", value: focusTask.dependsOn.join(", ") });
+    if (act && worker.taskId === focusTask.id) detailLines.push({ label: "now", value: act.kind === "tool" ? `${act.text} ${act.detail ?? ""}` : act.kind === "edit" ? `editing ${act.text}` : act.text });
+    if (focusTask.branch) detailLines.push({ label: "branch", value: focusTask.branch, color: C.dim });
+    if (focusTask.state === "NEEDS_HUMAN") detailLines.push({ label: "needs you", value: focusTask.needsHumanReason ?? "see /review", color: C.bad });
+    const appr = snap.approvals.filter((x) => x.taskId === focusTask.id);
+    for (const x of appr) detailLines.push({ label: "approval", value: `${x.id}: ${x.context}  (/approve ${x.id})`, color: C.warn });
+  } else if (worker) {
+    detailLines.push({ label: "state", value: worker.role === "reviewer" ? "idle: reviews start when a task passes its checks" : worker.role === "planner" ? "idle: /plan <file> to split a document into tasks" : `idle: /task <title> @${worker.role} to give it work`, color: C.dim });
+  }
+
+  // ── bottom ────────────────────────────────────────────────────────────
+  const queueBits: string[] = [];
+  for (const t of needs) queueBits.push(`${t.id} needs you`);
+  for (const a of snap.approvals) queueBits.push(`${a.id} approval waiting`);
+  for (const t of ready) queueBits.push(`${t.id} ready to merge (/accept ${t.id})`);
+  if (drafts) queueBits.push(`${drafts} draft${drafts > 1 ? "s" : ""} (/approve all)`);
+
+  const headerRows = 3;
+  const tableHeight = tableRows.length + 1;
+  const bottomRows = 2 + (cmd !== null ? 1 + Math.min(6, completions(cmd).length) : 0) + (queueBits.length ? 1 : 0);
+  const midHeight = Math.max(5, rows - headerRows - tableHeight - bottomRows - 1);
+
+  let body: React.ReactNode;
+  if (overlay.kind === "help") body = <Help />;
+  else if (overlay.kind === "review" || overlay.kind === "diff") body = <ReviewView data={overlay.data} showDiff={overlay.kind === "diff"} width={columns} height={midHeight} scroll={scroll} />;
   else if (overlay.kind === "usage")
-    main = (
-      <Box flexDirection="column" borderStyle="round" borderColor={t.accent} paddingX={1} width={mainWidth}>
-        <Text bold>📊 usage (source in brackets; unknown is never 0%)</Text>
+    body = (
+      <Box flexDirection="column">
+        <Text color={C.dim}>── usage (source in brackets; unknown is never shown as 0%) ──</Text>
         {snap.routes.map((r) => (
-          <Box key={r.route} flexDirection="column">
-            <Text bold>
-              {(VENDOR[r.vendor] ?? VENDOR.fake!).icon} {r.route} <Text color={t.dim}>({r.vendor}, {r.auth})</Text>
-              {r.pausedUntil ? <Text color={t.warn}> paused until {resetText(snap.now, r.pausedUntil)}</Text> : null}
-            </Text>
-            {r.windows.length === 0 ? <Text color={t.dim}>  5h unknown · 7d unknown</Text> : null}
-            {r.windows.map((w) => (
-              <Text key={w.kind} dimColor={w.stale}>
-                {"  "}
-                {w.kind.padEnd(6)} <Text color={t.accent}>{bar(w.usedPct, 20)}</Text> {w.display.padStart(7)} {w.detail ? `(${w.detail}) ` : ""}resets {resetText(snap.now, w.resetsAt)} cap {w.capPct}% [{w.source}]
-                {w.stale ? " stale" : ""}
-              </Text>
-            ))}
-          </Box>
+          <Text key={r.route}>
+            {" "}
+            {r.route.padEnd(16)}
+            {r.windows.length === 0 ? <Text color={C.dim}>unknown</Text> : r.windows.map((w) => `${w.kind} ${w.display}${w.detail ? ` (${w.detail})` : ""} resets ${resetText(snap.now, w.resetsAt)} [${w.source}]${w.stale ? " stale" : ""}`).join("   ")}
+            {r.pausedUntil ? <Text color={C.warn}> paused until {resetText(snap.now, r.pausedUntil)}</Text> : null}
+          </Text>
         ))}
-        <Text color={t.dim}>Esc to close · /limits &lt;route&gt; &lt;window&gt; &lt;value&gt; to change caps</Text>
       </Box>
     );
-  else if (overlay.kind === "review" || overlay.kind === "diff") main = <ReviewView data={overlay.data} showDiff={overlay.kind === "diff"} width={mainWidth} height={midRows} scroll={scroll} t={t} />;
-  else
-    main = (
-      <Box flexDirection="column" width={mainWidth}>
-        <Text wrap="truncate-end">
-          <Text color={v.color} bold>
-            {v.icon} {worker?.id ?? ""}
+  else if (overlay.kind === "tasks")
+    body = (
+      <Box flexDirection="column">
+        <Text color={C.dim}>── tasks ──</Text>
+        {tasks.map((t) => (
+          <Text key={t.id} wrap="truncate-end">
+            {" "}
+            {t.id} <Text color={stateColor(t.state)}>{t.state.toLowerCase().padEnd(12)}</Text> {t.role.padEnd(10)} {t.title}
+            <Text color={C.dim}>{t.dependsOn.length ? `  after ${t.dependsOn.join(",")}` : ""}</Text>
           </Text>
-          <Text color={t.dim}>
-            {currentTask ? ` · ${currentTask} ${snap.tasks.find((x) => x.id === currentTask)?.title ?? ""}` : " · idle"}
-            {pinnedTask ? " (pinned; Tab to unpin)" : ""}
-          </Text>
-        </Text>
-        <Stream entries={entries} width={mainWidth} height={midRows - 1} scroll={scroll} t={t} empty={empty} />
+        ))}
       </Box>
     );
+  else body = <DetailPane title={detailTitle} lines={detailLines} width={columns} />;
 
   return (
     <Box flexDirection="column" width={columns}>
-      {header}
-      <UsagePills routes={snap.routes} now={snap.now} t={t} />
-      <AgentTabs workers={workers} selected={sel} frame={frame} t={t} />
-      <Box flexDirection="row" height={midRows}>
-        {main}
-        {sidebar ? (
-          <Box marginLeft={1}>
-            <Sidebar files={currentTask ? (store.files.get(currentTask) ?? []) : []} tasks={snap.tasks} current={currentTask} cost={currentTask ? store.cost.get(currentTask) : undefined} width={sideWidth} height={midRows} t={t} />
-          </Box>
-        ) : null}
-      </Box>
-      {toasts.map((x, i) => (
-        <Text key={i} wrap="truncate-end" color={x.kind === "ok" ? t.ok : x.kind === "err" ? t.bad : x.kind === "warn" ? t.warn : t.accent}>
-          {" "}
-          {x.text}
+      <Box justifyContent="space-between" width={columns}>
+        <Text>
+          <Text bold>harness</Text>
+          <Text color={C.dim}> · {snap.project.name}</Text>
         </Text>
-      ))}
-      <ChatBar value={input} cursor={cursor} menuIndex={menuIndex} placeholder={placeholder} width={columns} t={t} />
-      <StatusLine
-        t={t}
-        width={columns}
-        segments={[`✦ ${snap.project.name}`, `⎇ ${snap.project.integrationBranch}`, snap.scheduler.running ? "▶ running" : "■ stopped", `${snap.scheduler.burst ? "⚡ burst" : "burst off"}`, `✅ ${merged}  ⚙ ${active}  ⏳ ${queued}${needs ? `  🙋 ${needs}` : ""}`]}
-        right="/help · Tab agents · Ctrl-C quit "
-      />
+        <Text>
+          {usage.map((u, i) => (
+            <Text key={i} color={u.color ?? C.dim}>
+              {i ? "   " : ""}
+              {u.txt}
+            </Text>
+          ))}
+        </Text>
+      </Box>
+      <Text color={C.dim}>
+        {working} working · {idle} idle · {queued} queued{needs.length ? "" : ""}
+        {needs.length ? <Text color={C.bad}> · {needs.length} needs you</Text> : null} · scheduler {snap.scheduler.running ? "running" : <Text color={C.warn}>stopped (r to run)</Text>}
+      </Text>
+      <Text> </Text>
+      <AgentTable rows={tableRows} selected={Math.min(sel, Math.max(0, tableRows.length - 1))} width={columns} frame={frame} />
+      <Text> </Text>
+      <Box height={midHeight} flexDirection="column" overflow="hidden">
+        {body}
+      </Box>
+      {queueBits.length ? (
+        <Text wrap="truncate-end" color={needs.length ? C.bad : C.warn}>
+          {" "}
+          {queueBits.join("  ·  ")}
+        </Text>
+      ) : null}
+      {cmd !== null ? (
+        <CommandLine value={cmd} cursor={cursor} menuIndex={menuIndex} width={columns} />
+      ) : (
+        <Text wrap="truncate-end" color={message?.color ?? C.dim}>
+          {message ? ` ${message.text}` : " "}
+        </Text>
+      )}
+      <Text color={C.dim} wrap="truncate-end">
+        {cmd !== null
+          ? " enter run · tab complete · ↑↓ choose · esc cancel"
+          : overlay.kind !== "none"
+            ? " esc back · / command · q quit"
+            : " ↑↓ select · enter review · d diff · r run · p pause · / command · ? help · q quit"}
+      </Text>
     </Box>
   );
 }

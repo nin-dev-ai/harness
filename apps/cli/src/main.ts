@@ -42,6 +42,18 @@ export function buildProgram(io: Io): Command {
     .showHelpAfterError();
   const ctx = makeCtx(io, program);
   for (const m of [init, doctor, roles, routes, plan, task, approve, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config]) m.register(program, ctx);
+  program
+    .command("setup")
+    .description("Run the setup wizard: pick agents, tools, models and write scopes (rewrites harness.yaml)")
+    .action(async () => {
+      const { setupWizard } = await import("./ui.js");
+      const { repoRoot } = await import("@harness/workspace");
+      if (!process.stdout.isTTY) throw new CliExit(EXIT.usage, "setup needs a terminal");
+      const root = await repoRoot(ctx.dir());
+      const ok = await setupWizard(ctx, root);
+      if (ok) await (await import("./commands/routes.js")).notifyReload(ctx);
+      io.out(ok ? "saved harness.yaml. Type `harness` to open the panel." : "setup cancelled; nothing was written.");
+    });
   program.action(async () => {
     const { openUi } = await import("./ui.js");
     await openUi(ctx);

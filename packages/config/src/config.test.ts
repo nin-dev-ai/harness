@@ -203,3 +203,21 @@ Free-form description.
     expect(findCycle(new Map([["T-001", ["T-003"]], ["T-002", ["T-001"]], ["T-003", ["T-002"]]]))).toEqual(["T-001", "T-003", "T-002", "T-001"]);
   });
 });
+
+describe("wizard config", () => {
+  it("builds a valid harness.yaml from wizard answers", async () => {
+    const { configFromWizard } = await import("./defaults.js");
+    const text = configFromWizard("shop", [
+      { role: "planner", vendor: "claude", mode: "readonly" },
+      { role: "backend", vendor: "claude", model: "opus", mode: "write", pathsAllow: ["src/server/**"], concurrency: 2 },
+      { role: "frontend", vendor: "codex", mode: "write", pathsAllow: ["src/ui/**"] },
+      { role: "reviewer", vendor: "cursor", mode: "readonly" },
+    ]);
+    const { config, warnings } = parseHarnessConfig(text);
+    expect(Object.keys(config.routes)).toEqual(["claude", "claude-opus", "codex", "cursor"]);
+    expect(config.roles.backend).toMatchObject({ route: "claude-opus", concurrency: 2, paths_allow: ["src/server/**"] });
+    expect(config.roles.reviewer?.independent_of).toEqual(["backend", "frontend"]);
+    expect(config.routes.cursor?.auth).toBe("api_key");
+    expect(warnings).toEqual([]);
+  });
+});
