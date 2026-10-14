@@ -31,6 +31,7 @@ import type { Guard, GuardDecision } from "./guards.js";
 import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
+import { TmuxMirror } from "./tmux.js";
 
 interface LiveRun {
   runId: string;
@@ -70,6 +71,7 @@ export class ProjectEngine {
   private stopped = false;
   /** Promises of in-flight work (runs and their follow-ups), for tests and shutdown. */
   private inflight = new Set<Promise<unknown>>();
+  private tmux: TmuxMirror;
 
   constructor(
     readonly p: ProjectRuntime,
@@ -82,6 +84,7 @@ export class ProjectEngine {
       this.running = true;
       this.until = last.payload.until ?? null;
     }
+    this.tmux = new TmuxMirror(p);
     this.armTimer();
   }
 
@@ -459,6 +462,7 @@ export class ProjectEngine {
     this.live.set(task.id, { runId, taskId: task.id, workerId, route, kind: r.kind, startedAt: this.p.now() });
     this.p.emit("worker.assigned", { role: this.p.store.workers.get(this.p.id, workerId)!.role }, { taskId: task.id, workerId, runId });
     this.p.setWorker(workerId, "RUNNING", { currentRun: runId });
+    void this.tmux.mirror(workerId, runId).catch(() => undefined);
     this.track(
       done
         .then((outcome) => this.afterRun(task.id, workerId, route, r.kind, outcome, reviewTreeHash))
@@ -722,6 +726,7 @@ export class ProjectEngine {
     if (r.status === "merged") {
       this.p.emit("branch.merged", { branch, into: cfg.integration_branch, commit: r.commit }, { taskId });
       this.p.transition(taskId, "MERGED");
+      await this.markStale(taskId, r.commit);
       await removeWorktree(this.p.root, taskId);
       this.p.emit("worktree.removed", { path: task.worktree ?? "" }, { taskId });
       this.kick();
@@ -732,6 +737,24 @@ export class ProjectEngine {
       this.needsHuman(taskId, "required checks failed after rebase onto the integration branch", { detail: r.detail });
     } else {
       this.needsHuman(taskId, "the task branch has no changes to merge", {});
+    }
+  }
+
+  /**
+   * Contract-first: when a merge changes a file another task builds on
+   * (its `contract_ref`), that task is STALE. Tasks that have not started
+   * yet are unaffected: they will start from the new contract.
+   */
+  private async markStale(mergedTaskId: string, commit: string): Promise<void> {
+    const changed = new Set((await git(this.p.root, ["diff", "--name-only", `${commit}^`, commit])).split("\n").filter(Boolean));
+    for (const t of this.p.tasks()) {
+      if (t.id === mergedTaskId || ["DRAFT", "CANCELLED", "STALE"].includes(t.state)) continue;
+      if (t.state === "QUEUED" && this.implementerRuns(t.id).length === 0) continue;
+      const ref = this.taskSpec(t.id)?.front.contract_ref;
+      if (!ref || !changed.has(ref)) continue;
+      const live = this.live.get(t.id);
+      this.p.transition(t.id, "STALE", `contract ${ref} changed by ${mergedTaskId}`);
+      if (live) await this.supervisor.stop(live.runId, "cancel");
     }
   }
 

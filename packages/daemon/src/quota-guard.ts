@@ -5,6 +5,8 @@ import { addMs, type RunKind, type Task, type TaskSize, type UsageSnapshot } fro
 import { capPct } from "@harness/config";
 import { collect } from "@harness/adapters";
 import {
+  WEEKLY_COST_RATIO,
+  fitsWindows,
   budgetLeft,
   currentUsed,
   estimateCost,
@@ -123,13 +125,20 @@ export class QuotaGuard implements Guard {
 
   // ── dispatch ─────────────────────────────────────────────────────────
 
-  private estimate(route: string, role: string, size: TaskSize, kind: "5h" | "budget") {
+  private estimate(route: string, role: string, size: TaskSize, kind: "5h" | "7d" | "budget") {
     const samples = this.p.store.windows.costSamples(route, role, size, kind).map((s) => s.deltaPct).reverse();
-    return estimateCost(samples, size, this.p.config.burst.cold_cost_pct);
+    const cold = this.p.config.burst.cold_cost_pct;
+    const defaults = kind === "7d" ? { S: cold.S * WEEKLY_COST_RATIO, M: cold.M * WEEKLY_COST_RATIO, L: cold.L * WEEKLY_COST_RATIO } : cold;
+    return estimateCost(samples, size, defaults);
   }
 
   private roleFor(task: Task, kind: RunKind | string): string {
     return kind === "review" ? "reviewer" : task.role;
+  }
+
+  /** Reviews are read-only and short: estimated as size S until measured. */
+  private sizeFor(task: Task, kind: RunKind | string): TaskSize {
+    return kind === "review" ? "S" : task.size;
   }
 
   async canDispatch(ctx: DispatchContext): Promise<GuardDecision> {
@@ -184,15 +193,22 @@ export class QuotaGuard implements Guard {
       now, used5h, used7d, weeklyResetsAt: w.get("7d")?.resetsAt ?? null, cap5h, cap7d,
       safetyMarginPct: cfg.burst.safety_margin_pct, weeklyReservePct: cfg.burst.weekly_reserve_pct, quiet,
     });
-    const est = this.estimate(route, role, task.size, "5h");
+    const size = this.sizeFor(task, ctx.kind);
+    const est = this.estimate(route, role, size, "5h");
 
     if (head.usable !== null) {
-      const inFlight = ctx.liveOnRoute.reduce((sum, l) => {
-        const t = this.p.store.tasks.get(this.p.id, l.taskId);
-        return sum + (t ? this.estimate(route, this.roleFor(t, l.kind), t.size, "5h").p80 : 0);
-      }, 0);
-      const fit = cfg.burst.enabled ? fits(est.p80, head.usable, inFlight) : head.usable <= 0 ? fits(0, head.usable, 0) : ({ ok: true } as const);
-      if (!fit.ok) return { ok: false, reason: fit.reason, detail: `${route}: ${fit.detail}${est.cold ? " (cold estimate)" : ""}` };
+      const inFlight = (kind: "5h" | "7d") =>
+        ctx.liveOnRoute.reduce((sum, l) => {
+          const t = this.p.store.tasks.get(this.p.id, l.taskId);
+          return sum + (t ? this.estimate(route, this.roleFor(t, l.kind), this.sizeFor(t, l.kind), kind).p80 : 0);
+        }, 0);
+      const est7d = this.estimate(route, role, size, "7d");
+      const fit = cfg.burst.enabled
+        ? fitsWindows({ headroom5h: head.headroom5h, weeklyPerWindow: head.weeklyPerWindow, cost5h: est.p80, cost7d: est7d.p80, inFlight5h: inFlight("5h"), inFlight7d: inFlight("7d") })
+        : head.usable <= 0
+          ? fits(0, head.usable, 0)
+          : ({ ok: true } as const);
+      if (!fit.ok) return { ok: false, reason: fit.reason, detail: `${route} ${fit.detail}${est.cold ? " (cold estimate)" : ""}` };
     } else if (!budget) {
       const since = new Date(now.getTime() - 5 * 3_600_000).toISOString();
       const recent = this.p.store.runs.usageSince(this.p.id, route, since, now.toISOString()).runs;
@@ -246,11 +262,11 @@ export class QuotaGuard implements Guard {
       if (before === null || !after || after.usedPct === null || after.source !== "vendor") continue;
       if (resets && after.resetsAt && after.resetsAt !== resets) continue; // window reset mid-run: no clean sample
       const delta = Math.max(0, after.usedPct - before) / start.maxConcurrent;
-      p.emit("cost.sampled", { route, role, size: task.size, windowKind: k, deltaPct: Math.round(delta * 100) / 100 }, env);
+      p.emit("cost.sampled", { route, role, size: this.sizeFor(task, kind), windowKind: k, deltaPct: Math.round(delta * 100) / 100 }, env);
     }
     if (p.config.limits.routes[route]?.manual_budget) {
       const minutes = (this.now().getTime() - start.startedMs) / 60_000;
-      p.emit("cost.sampled", { route, role, size: task.size, windowKind: "budget", deltaPct: Math.round(minutes * 100) / 100 }, env);
+      p.emit("cost.sampled", { route, role, size: this.sizeFor(task, kind), windowKind: "budget", deltaPct: Math.round(minutes * 100) / 100 }, env);
       this.budget(route);
     }
   }

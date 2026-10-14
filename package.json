@@ -7,7 +7,7 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/** --filter ./apps/** run build",
+    "build": "pnpm --filter @harness/cli build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -17,7 +17,8 @@
     "smoke:claude": "HARNESS_SMOKE=claude vitest run tests/smoke",
     "smoke:codex": "HARNESS_SMOKE=codex vitest run tests/smoke",
     "smoke:cursor": "HARNESS_SMOKE=cursor vitest run tests/smoke",
-    "harness": "tsx --conditions=source apps/cli/src/main.ts"
+    "harness": "tsx --conditions=source apps/cli/src/main.ts",
+    "demo": "bash scripts/demo.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

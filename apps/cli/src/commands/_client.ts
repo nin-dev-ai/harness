@@ -34,7 +34,7 @@ export async function connect(io: Io, opts: { start?: boolean } = {}): Promise<D
     fs.mkdirSync(paths.logs, { recursive: true });
     const log = fs.openSync(path.join(paths.logs, "daemon.out"), "a");
     const [cmd, ...args] = daemonCommand(io.env);
-    const child = spawn(cmd!, args, { detached: true, stdio: ["ignore", log, log], env: io.env, cwd: io.cwd });
+    const child = spawn(cmd!, args, { detached: true, stdio: ["ignore", log, log], env: { ...io.env, HARNESS_ATTENDED_AT_START: "1" }, cwd: io.cwd });
     child.unref();
   }
   const deadline = Date.now() + Number(io.env.HARNESS_DAEMON_START_TIMEOUT_MS ?? 15_000);

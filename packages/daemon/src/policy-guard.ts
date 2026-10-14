@@ -81,6 +81,14 @@ export class PolicyGuard implements Guard {
     }
 
     const u = unattendedDecision(cfg, route, ctx.attended);
+    if (u.ok && ctx.attended) {
+      // Someone is here now: earlier "may I run while you're away?" questions no longer apply.
+      for (const a of this.approvals()) {
+        if (a.taskId === task.id && a.state === "PENDING" && a.category === "unattended") {
+          this.p.emit("approval.denied", { approvalId: a.id, comment: "superseded: dispatched while attended" }, { taskId: task.id });
+        }
+      }
+    }
     if (!u.ok) {
       if (u.action === "deny") {
         this.p.emit("policy.denied", { rule: "unattended", detail: `unattended dispatch denied on route ${route}` }, { taskId: task.id });
@@ -134,6 +142,14 @@ export class PolicyGuard implements Guard {
       }
     }
 
+    // Changing a contract other tasks build on (after it exists) needs a human.
+    const contracts = this.contractRefs(ctx.task.id);
+    for (const f of scope.allowed) {
+      if (!contracts.has(f)) continue;
+      if ((await showFile(ctx.worktree, ctx.base, f)) === undefined) continue; // creating it is fine
+      this.request(ctx.task.id, "new_scope", "contract-change", `${ctx.task.id} changes shared contract ${f} used by ${[...contracts.get(f)!].join(", ")}`);
+    }
+
     const manifests = dependencyFiles(scope.allowed).filter((f) => !/lock|\.sum$/.test(f));
     if (manifests.length && !this.allowsDeps(ctx.task)) {
       const added: string[] = [];
@@ -150,8 +166,26 @@ export class PolicyGuard implements Guard {
     return out;
   }
 
+  /** contract_ref file → tasks (other than `except`) that build on it. */
+  private contractRefs(except: string): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    for (const t of this.p.tasks()) {
+      if (t.id === except || t.state === "CANCELLED") continue;
+      let ref: string | undefined;
+      try {
+        ref = readTaskFile(this.p.root, t.id).front.contract_ref;
+      } catch {
+        ref = undefined;
+      }
+      if (ref) out.set(ref, new Set([...(out.get(ref) ?? []), t.id]));
+    }
+    return out;
+  }
+
   mayAutoMerge(p: ProjectRuntime, task: Task, files: string[]): boolean {
     if (p.config.policy.autonomy !== "approved-scope") return false;
+    const contract = findApproval(this.approvals(), task.id, "contract-change");
+    if (contract && contract.state !== "GRANTED") return false;
     if (protectedTouched(files, p.config.policy.protected_paths).length && requiresApproval(p.config, "protected_paths")) {
       return findApproval(this.approvals(), task.id, "merge")?.state === "GRANTED";
     }

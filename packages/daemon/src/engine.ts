@@ -11,6 +11,7 @@ import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { Planner } from "./planning.js";
+import { suggestRoutes } from "./suggest.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
 const parse = <T extends z.ZodTypeAny>(schema: T, params: unknown): z.infer<T> => {
@@ -46,6 +47,8 @@ export class EnginePlugin implements DaemonPlugin {
 
   attach(d: Daemon): void {
     this.daemon = d;
+    // A daemon started by a person's command starts attended.
+    if (d.opts.env?.HARNESS_ATTENDED_AT_START === "1") this.markAttended();
   }
 
   onProjectOpen(p: ProjectRuntime): void {
@@ -285,6 +288,7 @@ export class EnginePlugin implements DaemonPlugin {
         const a = parse(P.extend({ document: z.string().default("") }), params);
         return new Planner(p, d.supervisor).proposeRoles(a.document);
       },
+      "roles.suggest": (params, ctx) => suggestRoutes(ctxProject(params, ctx.attended).p),
       "roles.apply": (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ proposal: z.object({ rationale: z.string().default(""), roles: z.array(z.object({ name: z.string(), route: z.string(), mode: z.enum(["readonly", "write"]), paths_allow: z.array(z.string()).optional(), instructions: z.string().default("") })) }) }), params);

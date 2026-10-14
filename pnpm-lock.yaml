@@ -71,6 +71,31 @@ importers:
 
   apps/cli:
     dependencies:
+      better-sqlite3:
+        specifier: ^11.8.0
+        version: 11.10.0
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
+      execa:
+        specifier: ^9.5.0
+        version: 9.6.1
+      ink:
+        specifier: ^5.1.0
+        version: 5.2.1(@types/react@18.3.31)(react@18.3.1)
+      picomatch:
+        specifier: ^4.0.2
+        version: 4.0.7
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.1
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
       '@harness/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
@@ -107,18 +132,9 @@ importers:
       '@harness/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
-      commander:
-        specifier: ^12.1.0
-        version: 12.1.0
       tsx:
         specifier: ^4.19.0
         version: 4.23.15
-      yaml:
-        specifier: ^2.6.0
-        version: 2.9.1
-      zod:
-        specifier: ^3.24.0
-        version: 3.25.76
 
   packages/adapters:
     dependencies:
@@ -182,6 +198,9 @@ importers:
       '@harness/workspace':
         specifier: workspace:*
         version: link:../workspace
+      execa:
+        specifier: ^9.5.0
+        version: 9.6.1
       picomatch:
         specifier: ^4.0.2
         version: 4.0.7

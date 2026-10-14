@@ -83,3 +83,9 @@ The PRD uses `a` for both "approve a draft" (Daily use) and "attach" (keybinding
 
 ## 2026-10-14 · Burst toggle
 `b` writes `burst.enabled` to harness.yaml (so the choice survives restarts) and reloads the project.
+
+## 2026-10-14 · Headroom units (found in the live demo)
+The PRD's `usable = min(headroom_5h, weekly_per_window)` compares a task cost in **% of the 5h window** with a weekly share in **% of the 7d window**. Those are different units. In the live Claude demo this blocked a review that needed about 12% of the 5h window, against 2.2% of the week left per window, even though the review costs far less than 2.2% of the week. Fix: each window is checked in its own units. The 5h p80 cost goes against 5h headroom, and the 7d p80 cost (learned from `cost.sampled` 7d deltas; cold default = 5h default × 0.2) goes against `weekly_per_window`. `usableHeadroom` still reports both terms.
+
+## 2026-10-14 · D6 data point (live demo)
+With a real Claude Pro account at 62% (5h) and 33% (7d) with ~5 days to the weekly reset, a 10% weekly reserve leaves 2.19% of the week per 5h window. The cold 7d estimate for an M task (12% × 0.2 = 2.4%) did not fit, so the scheduler waited. The run itself cost 4 points of the 5h window. Cold defaults stay as specified until more samples exist. The estimator replaces them after 3 measured runs per (route, role, size). Recovery now keeps REVIEWING and REPAIRING tasks in place instead of requeueing them, and reviews are estimated as size S.

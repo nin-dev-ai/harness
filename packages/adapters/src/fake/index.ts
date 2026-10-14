@@ -54,7 +54,8 @@ export interface FakeAdapterOptions {
   detect?: DetectResult;
 }
 
-export const FAKE_AGENT_BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "agent.mjs");
+const ASSETS = (globalThis as { __HARNESS_ASSETS__?: string }).__HARNESS_ASSETS__;
+export const FAKE_AGENT_BIN = ASSETS ? path.join(ASSETS, "fake", "agent.mjs") : path.join(path.dirname(fileURLToPath(import.meta.url)), "agent.mjs");
 
 /** Translate the fake agent's protocol into normalized events. Unknown lines become messages. */
 export const parseFakeLine: LineParser = (line, runId) => {
