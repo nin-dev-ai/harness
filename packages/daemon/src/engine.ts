@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { HarnessError, type TaskSize } from "@harness/core";
-import { findCycle, readTaskFile, writeTaskFile } from "@harness/config";
+import { findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
 import { changedFiles, diffSummary, diffText } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
 import type { Guard } from "./guards.js";
@@ -18,7 +18,7 @@ const parse = <T extends z.ZodTypeAny>(schema: T, params: unknown): z.infer<T> =
   return r.data;
 };
 
-export type GuardFactory = (p: ProjectRuntime, d: Daemon) => Guard[];
+export type GuardFactory = (p: ProjectRuntime, d: Daemon, kick: () => void) => Guard[];
 
 /** How long after the last client command a person counts as present. */
 const ATTENDED_WINDOW_MS = 10 * 60_000;
@@ -49,7 +49,7 @@ export class EnginePlugin implements DaemonPlugin {
 
   onProjectOpen(p: ProjectRuntime): void {
     if (this.engines.has(p.id) || !this.daemon) return;
-    const e = new ProjectEngine(p, this.daemon.supervisor, this.guardFactory(p, this.daemon), { attended: () => this.isAttended() });
+    const e = new ProjectEngine(p, this.daemon.supervisor, this.guardFactory(p, this.daemon, () => this.engines.get(p.id)?.kick()), { attended: () => this.isAttended() });
     this.engines.set(p.id, e);
     e.kick();
   }
@@ -236,6 +236,23 @@ export class EnginePlugin implements DaemonPlugin {
         if (!run) throw new HarnessError("NOT_FOUND", `unknown run ${runId}`);
         return { run, events: p.store.events.list({ runId }), artifactDir: path.join(p.root, run.artifactDir) };
       },
+      usage: (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        return snapshot(p, e).routes;
+      },
+      "limits.set": (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ route: z.string(), window: z.enum(["5h", "7d", "budget"]), budget: z.string() }), params);
+        if (!p.config.routes[a.route]) throw new HarnessError("VALIDATION", `unknown route "${a.route}"`);
+        const parsed = parseBudget(a.window, a.budget);
+        const current = p.config.limits.routes[a.route];
+        const raising = (a.window === "5h" && (current?.window_5h_cap_pct ?? 100) < (parsed.value as number)) || (a.window === "7d" && (current?.window_7d_cap_pct ?? 100) < (parsed.value as number));
+        setRouteLimit(p.root, a.route, parsed.key, parsed.value);
+        p.load();
+        p.emit("config.changed", { file: "harness.yaml", summary: `limits.routes.${a.route}.${parsed.key} = ${JSON.stringify(parsed.value)}${raising ? " (budget increase)" : ""}` });
+        e.kick();
+        return p.config.limits.routes[a.route];
+      },
       "events.list": (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ afterSeq: z.number().optional(), limit: z.number().optional(), taskId: z.string().optional() }), params);
@@ -268,4 +285,20 @@ export class EnginePlugin implements DaemonPlugin {
     }
     return out;
   }
+}
+
+/** "85%" for 5h/7d caps; "40 runs/day", "120 minutes/week", "30%/5h" for manual budgets. */
+export function parseBudget(window: "5h" | "7d" | "budget", text: string): { key: string; value: unknown } {
+  const t = text.trim();
+  if (window !== "budget") {
+    const m = /^(\d+(?:\.\d+)?)\s*%?$/.exec(t);
+    if (!m) throw new HarnessError("VALIDATION", `expected a percentage like "85%", got "${text}"`);
+    const v = Number(m[1]);
+    if (v < 0 || v > 100) throw new HarnessError("VALIDATION", "cap must be between 0 and 100");
+    return { key: window === "5h" ? "window_5h_cap_pct" : "window_7d_cap_pct", value: v };
+  }
+  const m = /^(\d+(?:\.\d+)?)\s*(runs?|minutes?|mins?|%|pct)\s*\/\s*(day|week|5h)$/.exec(t);
+  if (!m) throw new HarnessError("VALIDATION", `expected a budget like "40 runs/day" or "120 minutes/week", got "${text}"`);
+  const unit = m[2]!.startsWith("run") ? "runs" : m[2]!.startsWith("min") ? "minutes" : "pct";
+  return { key: "manual_budget", value: { unit, per: m[3], amount: Number(m[1]) } };
 }
