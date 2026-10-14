@@ -211,6 +211,8 @@ export class ProcessRunner {
     }, req.timeoutMs);
 
     let started = false;
+    const pending: AgentEvent[] = [];
+    let linesBeforeStart = 0;
     let sawResult = false;
     let sawLimit = false;
     let sawError = false;
@@ -232,9 +234,15 @@ export class ProcessRunner {
         } catch (e) {
           parsed = { events: [{ type: "message", runId, text: line.line, raw: { parseError: (e as Error).message } }] };
         }
+        // Hold events until the vendor reports its session id (or a few lines pass),
+        // so `started` can carry it even when other output comes first.
         if (!started) {
+          pending.push(...parsed.events);
+          linesBeforeStart++;
+          if (!parsed.sessionId && linesBeforeStart < 20) continue;
           started = true;
           yield startedEvent(parsed.sessionId);
+          parsed = { events: pending.splice(0) };
         }
         for (const ev of parsed.events) {
           if (ev.type === "started") continue;
@@ -248,7 +256,20 @@ export class ProcessRunner {
         }
       }
       const exit = await proc.exited;
-      if (!started) yield startedEvent();
+      if (!started) {
+        started = true;
+        yield startedEvent();
+        for (const ev of pending.splice(0)) {
+          if (ev.type === "started") continue;
+          if (ev.type === "result") sawResult = true;
+          if (ev.type === "rate_limit") sawLimit = true;
+          if (ev.type === "error") {
+            sawError = true;
+            if (ev.kind === "rate_limit" || ev.kind === "quota_exhausted") sawLimit = true;
+          }
+          yield ev;
+        }
+      }
       if (timedOut) {
         yield { type: "error", runId, kind: "timeout", message: `run exceeded ${req.timeoutMs}ms`, retryable: true };
       } else if (!entry.cancelled && exit.code !== 0) {
@@ -289,4 +310,11 @@ export function tryJson(line: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/** Drain an event stream into an array. */
+export async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const e of it) out.push(e);
+  return out;
 }
