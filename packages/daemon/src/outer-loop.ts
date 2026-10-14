@@ -786,6 +786,61 @@ export class ProjectEngine {
     this.kick();
   }
 
+  // ── attach / takeover ────────────────────────────────────────────────
+
+  /** Worker id or task id → task id. */
+  resolveTarget(target: string): string {
+    const byWorker = [...this.live.values()].find((l) => l.workerId === target);
+    if (byWorker) return byWorker.taskId;
+    this.p.task(target);
+    return target;
+  }
+
+  /**
+   * Take over a task: stop its run at a safe point, commit a wip checkpoint,
+   * and return the vendor's interactive command resumed on the same session.
+   */
+  async takeover(target: string): Promise<{ taskId: string; argv: string[]; cwd: string; sessionId: string | null; route: string }> {
+    const taskId = this.resolveTarget(target);
+    const live = this.live.get(taskId);
+    if (live) {
+      await this.supervisor.stop(live.runId, "takeover");
+      await this.idle();
+    }
+    const task = this.p.task(taskId);
+    if (!["RUNNING", "REPAIRING", "PAUSED", "NEEDS_HUMAN", "QUEUED"].includes(task.state)) {
+      throw Object.assign(new Error(`${taskId} is ${task.state}; nothing to take over`), { code: "CONFLICT" });
+    }
+    const ws = await this.ensureWorkspace(task);
+    if (!ws.ok) throw new Error(ws.detail);
+    const runs = this.implementerRuns(taskId);
+    const last = runs.at(-1);
+    const route = last?.route ?? this.p.config.roles[task.role]!.route;
+    const commit = await checkpoint(ws.path, taskId, last?.id ?? "takeover").catch(() => null);
+    if (commit) this.p.emit("run.checkpointed", { commit, reason: "takeover" }, { taskId, ...(last ? { runId: last.id } : {}) });
+    if (task.state === "RUNNING" || task.state === "REPAIRING" || task.state === "QUEUED") this.p.transition(taskId, "PAUSED", "user:takeover");
+    this.p.transition(taskId, "TAKEN_OVER", "attach");
+    const sessionId = this.lastSession(taskId, route) ?? null;
+    this.p.emit("run.taken_over", { ...(sessionId ? { sessionId } : {}) }, { taskId, ...(last ? { runId: last.id } : {}) });
+    const argv = sessionId ? this.p.adapter(route).interactiveCommand(sessionId, ws.path).argv : [];
+    return { taskId, argv, cwd: ws.path, sessionId, route };
+  }
+
+  /** After the person exits the interactive CLI: hand the task back to automation, or leave it with them. */
+  async releaseTakeover(taskId: string, resume: boolean): Promise<void> {
+    const task = this.p.task(taskId);
+    if (task.state !== "TAKEN_OVER") throw Object.assign(new Error(`${taskId} is ${task.state}, not TAKEN_OVER`), { code: "CONFLICT" });
+    const wt = this.worktreeAbs(task);
+    if (fs.existsSync(wt)) {
+      const commit = await checkpoint(wt, taskId, "takeover-end").catch(() => null);
+      if (commit) this.p.emit("run.checkpointed", { commit, reason: "takeover ended" }, { taskId });
+    }
+    if (resume) {
+      this.p.transition(taskId, "QUEUED", "resume automation after takeover");
+      this.kick();
+    }
+  }
+
   /** Events of interest for a task (for `review` and `task show`). */
   history(taskId: string): HarnessEvent[] {
     return this.p.store.events.list({ projectId: this.p.id, taskId });

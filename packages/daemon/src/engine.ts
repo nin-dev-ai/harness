@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { HarnessError, type TaskSize } from "@harness/core";
-import { findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
+import { editHarnessConfig, findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
 import { changedFiles, diffSummary, diffText } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
 import type { Guard } from "./guards.js";
@@ -291,6 +291,26 @@ export class EnginePlugin implements DaemonPlugin {
         new Planner(p, d.supervisor).applyRoles(a.proposal);
         e.kick();
         return { roles: Object.keys(p.config.roles) };
+      },
+      "attach.prepare": async (params, ctx) => {
+        const { e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ target: z.string() }), params);
+        return e.takeover(a.target);
+      },
+      "attach.done": async (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ taskId: z.string(), resume: z.boolean() }), params);
+        await e.releaseTakeover(a.taskId, a.resume);
+        return p.task(a.taskId);
+      },
+      "burst.set": (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ enabled: z.boolean() }), params);
+        editHarnessConfig(p.root, (doc) => doc.setIn(["burst", "enabled"], a.enabled));
+        p.load();
+        p.emit("config.changed", { file: "harness.yaml", summary: `burst.enabled = ${a.enabled}` });
+        e.kick();
+        return { burst: a.enabled };
       },
       "events.list": (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);

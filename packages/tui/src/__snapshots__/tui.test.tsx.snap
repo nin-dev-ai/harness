@@ -1,0 +1,47 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`panels > usage bar shows sources, caps, unknown and pauses 1`] = `
+"┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ USAGE                                                                                             │
+│ claude-sub      5h ▓▓▓▓▓▓▓▓░░     78%  resets 14:05 (1h24m)  cap 85%  [vendor]  7d ▓▓▓░░░░░░░     31%  resets 09:00 (92h19m)  cap 80%  [vendor]│
+│ codex-sub       5h unknown   7d unknown  paused until 15:30 (2h49m)                               │
+│ cursor-key      5h unknown   7d unknown  budget ▓▓▓░░░░░░░     28%  [manual]                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+`;
+
+exports[`panels > workers, tasks and output render 1`] = `
+" WORKERS
+ ▶ frontend-1   codex   RUNNING
+   T-004 Watchlist panel 12m
+ ▶ backend-1    claude  RUNNING
+   T-005 Quote feed adapter 7m
+ ⏸ reviewer-1   cursor  PAUSED
+   waiting: T-004 gate"
+`;
+
+exports[`panels > workers, tasks and output render 2`] = `
+" TASKS
+ T-003 PR_READY    backend   Quote contract ✓ gate
+ T-004 RUNNING     frontend  Watchlist pan…
+ T-006 QUEUED      frontend  Wire panel to… (dependencies)
+ T-007 DRAFT       backend   Docs"
+`;
+
+exports[`panels > workers, tasks and output render 3`] = `
+" OUTPUT: frontend-1 (codex) · T-004
+ › editing src/panels/Watchlist.tsx
+ › tool: shell pnpm test watchlist
+ ✗ check unit (3.1s)"
+`;
+
+exports[`panels > workers, tasks and output render 4`] = `
+"┌──────────────────────────────────────────────────────────────────────────────┐
+│ REVIEW T-003 Quote contract PR_READY                                         │
+│ Checks (gate.passed)                                                         │
+│   ✓ unit                                                                     │
+│ Findings                                                                     │
+│   [nit] a.ts:3 rename                                                        │
+│ Changes                                                                      │
+│  a.ts | 2 +-                                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘"
+`;

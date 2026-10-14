@@ -1,5 +1,6 @@
 import { formatUsedPct, isStale, msBetween, type Task, type Worker } from "@harness/core";
 import { capPct } from "@harness/config";
+import { periodStart } from "@harness/quota";
 import type { ProjectRuntime } from "./project.js";
 import type { ProjectEngine } from "./outer-loop.js";
 
@@ -9,6 +10,8 @@ export interface WindowView {
   kind: "5h" | "7d" | "budget";
   usedPct: number | null;
   display: string;
+  /** For manual budgets: "11 of 40 runs/day". */
+  detail?: string;
   resetsAt: string | null;
   source: "vendor" | "manual" | "inferred";
   observedAt: string;
@@ -28,6 +31,7 @@ export interface RouteView {
 
 export interface WorkerView extends Worker {
   vendor: string;
+  route: string | null;
   taskId: string | null;
   taskTitle: string | null;
   runKind: string | null;
@@ -39,7 +43,7 @@ export interface StatusSnapshot {
   scheduler: { running: boolean; until: string | null; burst: boolean };
   now: string;
   workers: WorkerView[];
-  tasks: (Task & { needsHumanReason?: string | null })[];
+  tasks: (Task & { needsHumanReason?: string | null; lastRunId?: string | null })[];
   routes: RouteView[];
   approvals: { id: string; taskId: string | null; category: string; context: string }[];
   warnings: string[];
@@ -57,6 +61,7 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
     return {
       ...w,
       vendor: route ? (p.config.routes[route]?.vendor ?? "?") : "?",
+      route: route ?? null,
       taskId: l?.taskId ?? null,
       taskTitle: l ? (byId.get(l.taskId)?.title ?? null) : null,
       runKind: l?.kind ?? null,
@@ -65,7 +70,8 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
   });
   const routes: RouteView[] = Object.entries(p.config.routes).map(([name, r]) => {
     const rs = p.store.windows.routeState(p.id, name);
-    const windows = p.store.windows.list(p.id, name).map((w) => ({
+    const budget = p.config.limits.routes[name]?.manual_budget;
+    const windows: WindowView[] = p.store.windows.list(p.id, name).filter((w) => w.kind !== "budget" || !budget).map((w) => ({
       route: name,
       vendor: r.vendor,
       kind: w.kind,
@@ -77,6 +83,18 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
       stale: w.source !== "manual" && isStale(w.observedAt, now),
       capPct: capPct(p.config, name, w.kind),
     }));
+    if (budget) {
+      // Computed fresh from runs in the period, so it shows before anything has run.
+      const since = periodStart(now, budget.per);
+      const u = p.store.runs.usageSince(p.id, name, since.toISOString(), now.toISOString());
+      const used = budget.unit === "runs" ? u.runs : budget.unit === "minutes" ? u.minutes : 0;
+      const pct = Math.round((used / budget.amount) * 1000) / 10;
+      windows.push({
+        route: name, vendor: r.vendor, kind: "budget", usedPct: pct, display: formatUsedPct(pct), detail: `${used} of ${budget.amount} ${budget.unit}/${budget.per}`,
+        resetsAt: budget.per === "5h" ? null : new Date(since.getTime() + (budget.per === "day" ? 86_400_000 : 7 * 86_400_000)).toISOString(),
+        source: "manual", observedAt: now.toISOString(), stale: false, capPct: 100,
+      });
+    }
     return { route: name, vendor: r.vendor, auth: r.auth, model: r.model ?? null, pausedUntil: rs.pausedUntil, pauseSource: rs.pauseSource, windows };
   });
   const needsHuman = new Map<string, string>();
@@ -86,7 +104,7 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
     scheduler: { running: engine.running, until: engine.until, burst: p.config.burst.enabled },
     now: now.toISOString(),
     workers,
-    tasks: tasks.map((t) => ({ ...t, needsHumanReason: t.state === "NEEDS_HUMAN" ? (needsHuman.get(t.id) ?? null) : null })),
+    tasks: tasks.map((t) => ({ ...t, needsHumanReason: t.state === "NEEDS_HUMAN" ? (needsHuman.get(t.id) ?? null) : null, lastRunId: p.store.runs.listByTask(p.id, t.id).at(-1)?.id ?? null })),
     routes,
     approvals: p.store.windows.approvals(p.id, "PENDING").map((a) => ({ id: a.id, taskId: a.taskId, category: a.category, context: a.context })),
     warnings: p.warnings.map((w) => `${w.file ?? ""}${w.line ? `:${w.line}` : ""} ${w.message}`.trim()),
