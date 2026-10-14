@@ -37,11 +37,11 @@ export function starterConfig(project: string, vendors: Vendor[]): string {
   const routes: string[] = [];
   if (has("claude")) routes.push("  claude-sub:\n    vendor: claude\n    auth: subscription");
   if (has("codex")) routes.push("  codex-sub:\n    vendor: codex\n    auth: subscription");
-  if (has("cursor")) routes.push("  cursor-key:\n    vendor: cursor\n    auth: api_key                # reads CURSOR_API_KEY");
+  if (has("cursor")) routes.push("  cursor:\n    vendor: cursor\n    auth: subscription           # uses your cursor-agent login");
   if (!routes.length) routes.push("  fake:\n    vendor: fake\n    auth: api_key");
-  const first = has("claude") ? "claude-sub" : has("codex") ? "codex-sub" : has("cursor") ? "cursor-key" : "fake";
+  const first = has("claude") ? "claude-sub" : has("codex") ? "codex-sub" : has("cursor") ? "cursor" : "fake";
   const second = has("codex") ? "codex-sub" : first;
-  const reviewer = has("cursor") ? "cursor-key" : has("codex") && first !== "codex-sub" ? "codex-sub" : first;
+  const reviewer = has("cursor") ? "cursor" : has("codex") && first !== "codex-sub" ? "codex-sub" : first;
   return `version: 1
 project: ${project}
 integration_branch: harness/integration   # task branches merge here, never into main
@@ -89,7 +89,7 @@ export interface WizardAgent {
   mode: "readonly" | "write";
   pathsAllow?: string[];
   concurrency?: number;
-  /** Defaults: Cursor uses an API key, Claude and Codex the signed-in subscription. */
+  /** Default: the CLI's own login (no API key). */
   auth?: "subscription" | "api_key";
 }
 
@@ -104,7 +104,7 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
   const routeFor = (a: WizardAgent) => {
     const base = ROUTE_NAME[a.vendor];
     const name = a.model ? `${base}-${a.model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : base;
-    routes.set(name, { vendor: a.vendor, auth: a.auth ?? (a.vendor === "cursor" ? "api_key" : "subscription"), ...(a.model ? { model: a.model } : {}) });
+    routes.set(name, { vendor: a.vendor, auth: a.auth ?? "subscription", ...(a.model ? { model: a.model } : {}) });
     return name;
   };
   const roleLines: string[] = [];

@@ -217,7 +217,7 @@ describe("wizard config", () => {
     expect(Object.keys(config.routes)).toEqual(["claude", "claude-opus", "codex", "cursor"]);
     expect(config.roles.backend).toMatchObject({ route: "claude-opus", concurrency: 2, paths_allow: ["src/server/**"] });
     expect(config.roles.reviewer?.independent_of).toEqual(["backend", "frontend"]);
-    expect(config.routes.cursor?.auth).toBe("api_key");
+    expect(config.routes.cursor?.auth).toBe("subscription");
     expect(warnings).toEqual([]);
   });
 });

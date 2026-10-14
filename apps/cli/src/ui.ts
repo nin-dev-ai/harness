@@ -46,9 +46,8 @@ export async function setupWizard(ctx: Ctx, root: string): Promise<boolean> {
   const tools = (["claude", "codex", "cursor"] as const).map((v) => ({ vendor: v, installed: d[v].installed, signedIn: d[v].signedIn, version: d[v].version, fixHint: d[v].fixHint }));
   const agents = await runWizard({ project: path.basename(root), tools, folders: await repoFolders(root) });
   if (!agents) return false;
-  // Cursor: an API key if one is set, else the signed-in account.
-  const auth = (v: string) => (v === "cursor" && !ctx.io.env.CURSOR_API_KEY ? "subscription" : undefined);
-  writeFileAtomic(path.join(root, CONFIG_FILE), configFromWizard(slugify(path.basename(root)) || "project", agents.map((a) => ({ ...a, ...(auth(a.vendor) ? { auth: auth(a.vendor)! } : {}) }))));
+  // Every agent uses its CLI's own login; API keys are opt-in by editing harness.yaml.
+  writeFileAtomic(path.join(root, CONFIG_FILE), configFromWizard(slugify(path.basename(root)) || "project", agents));
   await initProject(ctx, { baseline: false, quiet: true });
   return true;
 }
