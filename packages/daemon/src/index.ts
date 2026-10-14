@@ -1,2 +1,9 @@
-// @harness/daemon — implemented in M7.
-export {};
+export * from "./paths.js";
+export * from "./pidfile.js";
+export * from "./lock.js";
+export * from "./server.js";
+export * from "./client.js";
+export * from "./project.js";
+export * from "./supervisor.js";
+export * from "./recovery.js";
+export * from "./daemon.js";
