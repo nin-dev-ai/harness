@@ -36,8 +36,9 @@ export function register(program: Command, ctx: Ctx): void {
     .command("propose")
     .description("Ask the planner role's agent to suggest roles and routes")
     .option("--file <prd>", "PRD or notes to base the proposal on")
-    .action(async (o: { file?: string }) => {
+    .option("--apply", "write the proposed roles into harness.yaml")
+    .action(async (o: { file?: string; apply?: boolean }) => {
       const { proposeRoles } = await import("./plan.js");
-      await proposeRoles(ctx, o.file);
+      await proposeRoles(ctx, o.file, o.apply);
     });
 }

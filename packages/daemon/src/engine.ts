@@ -10,6 +10,7 @@ import { ProjectEngine } from "./outer-loop.js";
 import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
+import { Planner } from "./planning.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
 const parse = <T extends z.ZodTypeAny>(schema: T, params: unknown): z.infer<T> => {
@@ -273,6 +274,23 @@ export class EnginePlugin implements DaemonPlugin {
         this.decide(p, a.id, false, a.comment);
         e.kick();
         return p.store.windows.approvals(p.id).find((x) => x.id === a.id);
+      },
+      plan: async (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("(inline)") }), params);
+        return new Planner(p, d.supervisor).plan(a.document, a.source);
+      },
+      "roles.propose": async (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ document: z.string().default("") }), params);
+        return new Planner(p, d.supervisor).proposeRoles(a.document);
+      },
+      "roles.apply": (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ proposal: z.object({ rationale: z.string().default(""), roles: z.array(z.object({ name: z.string(), route: z.string(), mode: z.enum(["readonly", "write"]), paths_allow: z.array(z.string()).optional(), instructions: z.string().default("") })) }) }), params);
+        new Planner(p, d.supervisor).applyRoles(a.proposal);
+        e.kick();
+        return { roles: Object.keys(p.config.roles) };
       },
       "events.list": (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
