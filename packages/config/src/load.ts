@@ -88,7 +88,7 @@ function checkHarnessRules(c: HarnessConfig, doc: Document, lc: LineCounter, fil
     role.fallback_routes.forEach((fr, i) => {
       const r = routes[fr];
       if (!r) errors.push(at(["roles", name, "fallback_routes", i], `fallback route "${fr}" is not defined in routes`));
-      else if (seenVendors.has(r.vendor)) errors.push(at(["roles", name, "fallback_routes", i], `role "${name}" lists more than one route of vendor ${r.vendor}; switching accounts of one vendor is not allowed`));
+      else if (r.vendor !== "fake" && seenVendors.has(r.vendor)) errors.push(at(["roles", name, "fallback_routes", i], `role "${name}" lists more than one route of vendor ${r.vendor}; switching accounts of one vendor is not allowed`));
       else seenVendors.add(r.vendor);
     });
     if (role.fallback === "auto" && role.fallback_routes.length === 0) warnings.push(at(["roles", name, "fallback"], `fallback: auto with no fallback_routes has no effect`));

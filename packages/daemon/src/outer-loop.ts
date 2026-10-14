@@ -26,6 +26,7 @@ import {
   removeWorktree,
   workingTreeHash,
 } from "@harness/workspace";
+import { isSecretPath } from "@harness/policy";
 import type { Guard, GuardDecision } from "./guards.js";
 import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
@@ -188,8 +189,8 @@ export class ProjectEngine {
         continue;
       }
       const role = cfg.roles[item.role]!;
-      // The role's route is law; fallback routes only with `fallback: auto`.
-      const candidates = [role.route, ...(role.fallback === "auto" ? role.fallback_routes : [])];
+      // The role's route is law; fallback routes only with `fallback: auto` (or `ask` + approval, see PolicyGuard).
+      const candidates = [role.route, ...(role.fallback !== "none" ? role.fallback_routes : [])];
       let chosen: string | undefined;
       let firstBlock: { reason: NonNullable<Task["blockedReason"]>; detail?: string } | undefined;
       for (const route of candidates) {
@@ -436,7 +437,7 @@ export class ProjectEngine {
       title: task.title,
       acceptance: spec?.front.acceptance ?? [],
       checks: this.p.checks.checks.filter((c) => c.required).map((c) => c.id),
-      diff: await diffText(wt, base),
+      diff: await diffText(wt, base, 200_000, (await changedFiles(wt, base)).filter(isSecretPath)),
     });
     const before = await workingTreeHash(wt);
     this.startRun(task, workerId, route, { kind: "review", prompt, cwd: wt, mode: "readonly", allowedPaths: [], jsonSchema: REVIEW_JSON_SCHEMA }, before);

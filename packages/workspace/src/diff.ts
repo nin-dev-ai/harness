@@ -64,11 +64,11 @@ export async function diffSummary(worktree: string, base: string): Promise<DiffS
 }
 
 /** Unified diff relative to the merge base, truncated to `maxBytes`. */
-export async function diffText(worktree: string, base: string, maxBytes = 200_000): Promise<string> {
+export async function diffText(worktree: string, base: string, maxBytes = 200_000, exclude: readonly string[] = []): Promise<string> {
   const mb = await mergeBase(worktree, base);
   const untracked = (await git(worktree, ["ls-files", "--others", "--exclude-standard"])).split("\n").filter(Boolean);
   if (untracked.length) await gitRaw(worktree, ["add", "-N", "--", ...untracked]);
-  const text = await git(worktree, ["diff", mb]);
+  const text = await git(worktree, ["diff", mb, ...(exclude.length ? ["--", ".", ...exclude.map((f) => `:(exclude)${f}`)] : [])]);
   if (untracked.length) await gitRaw(worktree, ["reset", "-q", "--", ...untracked]);
   return text.length > maxBytes ? `${text.slice(0, maxBytes)}\n... diff truncated (${text.length} bytes)` : text;
 }

@@ -68,3 +68,10 @@ Codex can print output before `thread.started`. The process runner holds events 
 - **Cost samples** are recorded only from `vendor` readings within one reset period, and divided by the most runs that overlapped on the route.
 - **`max_tasks_per_burst`** counts new (initial) runs on a route since the scheduler started or the route last resumed.
 - **Quiet hours** use the daemon's local time.
+
+## 2026-10-14 · Policy details
+- **New dependencies** surface as a failed synthetic `dependencies` check at the gate (an approval is requested at the same time), not as a reviewer finding. The effect is the same, a blocked task with a repair prompt that names the dependency, and it doesn't depend on the reviewer noticing. `allow_new_dependencies: true` in the task file, or a granted approval, allows them.
+- **Protected paths:** while attended, a change to a protected path requests an approval and blocks auto-merge (`review --accept` grants it). While unattended, the change is reverted and fails a synthetic `protected-paths` check.
+- **Unattended `ask`** approvals are scoped to one task, route, run kind and attempt, so they're never reused for a later dispatch.
+- **`harness approve <id>`** approves a DRAFT task and also grants that task's pending approvals.
+- The one-route-per-vendor fallback rule exempts the `fake` test vendor.
