@@ -24,6 +24,10 @@
     "@harness/policy": "workspace:*",
     "@harness/planner": "workspace:*",
     "@harness/github": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "picomatch": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/picomatch": "^3.0.1"
   }
 }

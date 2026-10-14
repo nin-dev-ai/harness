@@ -51,3 +51,13 @@ Codex can print output before `thread.started`. The process runner holds events 
 
 ## 2026-10-14 · One adapter instance per route
 `createAdapter(routeName, route)` builds an adapter per route, so `usage()` returns the windows that route's account last reported.
+
+## 2026-10-14 · Outer loop details
+- **Reviewer role** is the role named `reviewer`. With no such role, a task that passes the gate goes to `PR_READY` (through `REVIEWING`, with `review.passed {findings: 0}`).
+- **Workers** are held from dispatch through the gate, then released. Review and repair are separate work items, picked by the scheduler when a worker of the right role is free (the implementer's worker for repairs, a reviewer worker for reviews).
+- **Pause cause** is the reason on the transition into `PAUSED`: `limit:<route>` resumes automatically after the reset; `user` waits for `harness resume`.
+- **Stall order:** unchanged diff is checked before same signature, since "the repair changed nothing" is the more specific diagnosis.
+- **A crashed or timed-out run still goes to the gate.** Partial work is checkpointed, and only the checks decide. Auth, CLI-missing and CLI-version errors go straight to `NEEDS_HUMAN`.
+- **A failed re-verification after rebase** goes to `NEEDS_HUMAN` (not an automatic repair), with the failing output as evidence.
+- **`review --reject -m`** is stored as a denied approval carrying the comment, followed by `repair.requested {cause: human}`.
+- **Attended** means a client command with `attended: true` within the last 10 minutes (used by the unattended policy in M10).
