@@ -1,0 +1,35 @@
+# Verification commands. The harness runs these itself; an agent's claim that they pass is never used.
+version: 1
+checks:
+  - id: typecheck
+    argv:
+      - pnpm
+      - typecheck
+    timeout_s: 300
+    required: true
+  - id: lint
+    argv:
+      - pnpm
+      - lint
+    timeout_s: 180
+    required: true
+  - id: unit
+    argv:
+      - pnpm
+      - test
+    timeout_s: 600
+    required: true
+  - id: build
+    argv:
+      - pnpm
+      - build
+    timeout_s: 600
+    required: false
+setup:
+  - argv:
+      - pnpm
+      - install
+      - --frozen-lockfile
+env_pass:
+  - CI
+  - NODE_ENV

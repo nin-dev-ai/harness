@@ -14,7 +14,7 @@ export function formatAgentEvent(e: AgentEvent): string {
   }
 }
 
-/** One line per event of a run: agent events and the checks around them. */
+/** One plain line per event of a run (used by `harness logs`). */
 export function formatRunEvent(e: HarnessEvent): string | undefined {
   if (e.type === "run.event") return formatAgentEvent(e.payload.event);
   if (e.type === "check.finished") return `${e.payload.ok ? "✓" : "✗"} check ${e.payload.checkId} (${Math.round(e.payload.durationMs / 100) / 10}s)`;
@@ -25,6 +25,67 @@ export function formatRunEvent(e: HarnessEvent): string | undefined {
   return undefined;
 }
 
+export type EntryKind = "say" | "tool" | "edit" | "check" | "ok" | "err" | "warn" | "sys" | "you" | "run" | "finding";
+
+/** One line in the chat-style stream. */
+export interface Entry {
+  kind: EntryKind;
+  text: string;
+  detail?: string;
+  ts: string;
+}
+
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+
+/** Claude-Code-style rendering of everything that happens on a task. */
+export function toEntry(e: HarnessEvent): Entry | undefined {
+  const ts = e.ts;
+  switch (e.type) {
+    case "run.started":
+      return { kind: "run", text: `${e.payload.kind === "review" ? "review" : e.payload.kind} run on ${e.payload.route}`, detail: e.runId ?? "", ts };
+    case "run.event": {
+      const ev = e.payload.event;
+      if (ev.type === "message") return { kind: "say", text: ev.text, ts };
+      if (ev.type === "tool_call") return { kind: "tool", text: ev.tool, detail: ev.summary, ts };
+      if (ev.type === "file_change") return { kind: "edit", text: ev.path, ts };
+      if (ev.type === "result") return { kind: ev.ok ? "ok" : "err", text: ev.summary || (ev.ok ? "done" : "failed"), detail: "agent says", ts };
+      if (ev.type === "error") return { kind: "err", text: `${ev.kind}: ${ev.message}`, ts };
+      if (ev.type === "rate_limit") return { kind: "warn", text: `usage limit (${ev.window})${ev.resetsAt ? `, resets ${new Date(ev.resetsAt).toTimeString().slice(0, 5)}` : ""}`, ts };
+      return undefined;
+    }
+    case "check.finished":
+      return { kind: "check", text: `${e.payload.ok ? "✓" : "✗"} ${e.payload.checkId}`, detail: secs(e.payload.durationMs), ts };
+    case "gate.passed":
+      return { kind: "ok", text: "checks passed (run by harness, not the agent)", ts };
+    case "gate.failed":
+      return { kind: "err", text: `checks failed: ${e.payload.failed.join(", ")}`, ts };
+    case "repair.requested":
+      return { kind: "sys", text: `sending it back to the agent (attempt ${e.payload.attempt}, ${e.payload.cause})`, ts };
+    case "stall.detected":
+      return { kind: "err", text: `stalled: ${e.payload.detail ?? e.payload.reason}`, ts };
+    case "review.finding":
+      return { kind: "finding", text: e.payload.message, detail: `${e.payload.severity}${e.payload.file ? ` ${e.payload.file}${e.payload.line ? `:${e.payload.line}` : ""}` : ""}`, ts };
+    case "review.passed":
+      return { kind: "ok", text: `review passed (${e.payload.findings} finding${e.payload.findings === 1 ? "" : "s"})`, ts };
+    case "review.blocked":
+      return { kind: "err", text: `review found ${e.payload.blockers} blocker(s)`, ts };
+    case "human.message":
+      return { kind: "you", text: e.payload.text, ts };
+    case "task.needs_human":
+      return { kind: "err", text: `needs you: ${e.payload.reason}`, ts };
+    case "branch.merged":
+      return { kind: "ok", text: `merged into ${e.payload.into} 🎉`, ts };
+    case "merge.conflict":
+      return { kind: "err", text: `merge conflict in ${e.payload.files.join(", ")}`, ts };
+    case "policy.denied":
+      return { kind: "warn", text: `policy: ${e.payload.detail}`, ts };
+    case "task.state_changed":
+      return ["PAUSED", "QUEUED", "TAKEN_OVER", "STALE", "CANCELLED"].includes(e.payload.to) ? { kind: "sys", text: `${e.payload.to.toLowerCase()}${e.payload.reason ? ` · ${e.payload.reason}` : ""}`, ts } : undefined;
+    default:
+      return undefined;
+  }
+}
+
 export function duration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || ms < 0) return "";
   const m = Math.floor(ms / 60_000);
@@ -33,7 +94,7 @@ export function duration(ms: number | null | undefined): string {
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
 }
 
-/** "14:05 (1h24m)" in the viewer's local time, or "unknown". */
+/** "14:05 (1h24m)" in local time, or "unknown". */
 export function resetText(nowIso: string, iso: string | null): string {
   if (!iso) return "unknown";
   const t = new Date(iso);
@@ -43,7 +104,7 @@ export function resetText(nowIso: string, iso: string | null): string {
 export function bar(pct: number | null, width = 10): string {
   if (pct === null) return "·".repeat(width);
   const n = Math.max(0, Math.min(width, Math.round((pct / 100) * width)));
-  return "▓".repeat(n) + "░".repeat(width - n);
+  return "█".repeat(n) + "░".repeat(width - n);
 }
 
 export function clip(s: string, width: number): string {

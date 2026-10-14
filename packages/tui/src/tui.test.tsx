@@ -3,82 +3,47 @@ import { render } from "ink-testing-library";
 import type { HarnessEvent } from "@harness/core";
 import type { StatusSnapshot } from "@harness/daemon";
 import { App } from "./App.js";
-import { Output } from "./components/Output.js";
-import { Tasks } from "./components/Tasks.js";
-import { UsageBar } from "./components/UsageBar.js";
-import { Workers } from "./components/Workers.js";
-import { Help } from "./components/Help.js";
-import { ReviewView } from "./components/ReviewView.js";
+import { completions, parseInput } from "./commands.js";
+import { gradient } from "./theme.js";
 import { TuiStore, type TuiApi } from "./store.js";
+import { Stream } from "./components/Stream.js";
+import { THEMES } from "./theme.js";
 
 const NOW = "2026-01-05T12:41:00.000Z";
+const task = (id: string, title: string, role: string, state: "RUNNING" | "DRAFT", extra: Record<string, unknown> = {}) => ({
+  id, projectId: "p", title, role, state, size: "M" as const, dependsOn: [] as string[], attempts: 1, attemptsMax: 3, branch: null, worktree: null, specPath: "", blockedReason: null, createdAt: NOW, updatedAt: NOW, lastRunId: null, ...extra,
+});
+const worker = (id: string, role: string, vendor: string, state: "RUNNING" | "IDLE", taskId: string | null = null) => ({
+  id, projectId: "p", role, state, currentRun: taskId ? `R-${taskId}-1` : null, heartbeatAt: null, waitingReason: null, vendor, route: `${vendor}-sub`, taskId, taskTitle: taskId ? "Watchlist panel" : null, runKind: taskId ? "initial" : null, elapsedMs: taskId ? 60_000 : null,
+});
 
-const snap: StatusSnapshot = {
-  project: { id: "market-terminal-abc123", name: "market-terminal", root: "/repo", integrationBranch: "harness/integration", autonomy: "approved-scope" },
-  scheduler: { running: true, until: null, burst: true },
+const snap = (): StatusSnapshot => ({
+  project: { id: "p", name: "market-terminal", root: "/repo", integrationBranch: "harness/integration", autonomy: "approved-scope" },
+  scheduler: { running: false, until: null, burst: true },
   now: NOW,
-  workers: [
-    { id: "frontend-1", projectId: "p", role: "frontend", state: "RUNNING", currentRun: "R-T-004-1", heartbeatAt: null, waitingReason: null, vendor: "codex", route: "codex-sub", taskId: "T-004", taskTitle: "Watchlist panel", runKind: "initial", elapsedMs: 12 * 60_000 },
-    { id: "backend-1", projectId: "p", role: "backend", state: "RUNNING", currentRun: "R-T-005-1", heartbeatAt: null, waitingReason: null, vendor: "claude", route: "claude-sub", taskId: "T-005", taskTitle: "Quote feed adapter", runKind: "initial", elapsedMs: 7 * 60_000 },
-    { id: "reviewer-1", projectId: "p", role: "reviewer", state: "PAUSED", currentRun: null, heartbeatAt: null, waitingReason: "T-004 gate", vendor: "cursor", route: "cursor-key", taskId: null, taskTitle: null, runKind: null, elapsedMs: null },
-  ],
-  tasks: [
-    { id: "T-003", projectId: "p", title: "Quote contract", role: "backend", state: "PR_READY", size: "S", dependsOn: [], attempts: 1, attemptsMax: 3, branch: "harness/backend/T-003-quote-contract", worktree: null, specPath: "", blockedReason: null, createdAt: NOW, updatedAt: NOW, lastRunId: "R-T-003-2" },
-    { id: "T-004", projectId: "p", title: "Watchlist panel", role: "frontend", state: "RUNNING", size: "M", dependsOn: [], attempts: 1, attemptsMax: 3, branch: "harness/frontend/T-004-watchlist", worktree: ".harness/worktrees/T-004", specPath: "", blockedReason: null, createdAt: NOW, updatedAt: NOW, lastRunId: "R-T-004-1" },
-    { id: "T-006", projectId: "p", title: "Wire panel to feed", role: "frontend", state: "QUEUED", size: "M", dependsOn: ["T-004", "T-005"], attempts: 0, attemptsMax: 3, branch: null, worktree: null, specPath: "", blockedReason: "dependencies", createdAt: NOW, updatedAt: NOW, lastRunId: null },
-    { id: "T-007", projectId: "p", title: "Docs", role: "backend", state: "DRAFT", size: "S", dependsOn: [], attempts: 0, attemptsMax: 3, branch: null, worktree: null, specPath: "", blockedReason: null, createdAt: NOW, updatedAt: NOW, lastRunId: null },
-  ],
+  workers: [worker("frontend-1", "frontend", "codex", "RUNNING", "T-004"), worker("backend-1", "backend", "claude", "IDLE"), worker("planner-1", "planner", "claude", "IDLE"), worker("reviewer-1", "reviewer", "cursor", "IDLE")],
+  tasks: [task("T-004", "Watchlist panel", "frontend", "RUNNING", { lastRunId: "R-T-004-1" }), task("T-007", "Docs", "backend", "DRAFT")],
   routes: [
-    { route: "claude-sub", vendor: "claude", auth: "subscription", model: null, pausedUntil: null, pauseSource: null, windows: [
-      { route: "claude-sub", vendor: "claude", kind: "5h", usedPct: 78, display: "78%", resetsAt: "2026-01-05T14:05:00.000Z", source: "vendor", observedAt: NOW, stale: false, capPct: 85 },
-      { route: "claude-sub", vendor: "claude", kind: "7d", usedPct: 31, display: "31%", resetsAt: "2026-01-09T09:00:00.000Z", source: "vendor", observedAt: NOW, stale: false, capPct: 80 },
-    ] },
-    { route: "codex-sub", vendor: "codex", auth: "subscription", model: null, pausedUntil: "2026-01-05T15:30:00.000Z", pauseSource: "event", windows: [] },
-    { route: "cursor-key", vendor: "cursor", auth: "api_key", model: null, pausedUntil: null, pauseSource: null, windows: [
-      { route: "cursor-key", vendor: "cursor", kind: "budget", usedPct: 27.5, display: "28%", resetsAt: null, source: "manual", observedAt: NOW, stale: false, capPct: 100 },
-    ] },
+    { route: "claude-sub", vendor: "claude", auth: "subscription", model: null, pausedUntil: null, pauseSource: null, windows: [{ route: "claude-sub", vendor: "claude", kind: "5h", usedPct: 62, display: "62%", resetsAt: "2026-01-05T14:05:00.000Z", source: "vendor", observedAt: NOW, stale: false, capPct: 100 }] },
+    { route: "cursor-sub", vendor: "cursor", auth: "api_key", model: null, pausedUntil: null, pauseSource: null, windows: [] },
   ],
   approvals: [],
   warnings: [],
-};
-
-describe("panels", () => {
-  it("usage bar shows sources, caps, unknown and pauses", () => {
-    const f = render(<UsageBar routes={snap.routes} now={NOW} width={160} />).lastFrame()!;
-    expect(f).toContain("USAGE");
-    expect(f).toContain("78%");
-    expect(f).toContain("cap 85%");
-    expect(f).toContain("[vendor]");
-    expect(f).toContain("[manual]");
-    expect(f).toContain("5h unknown");
-    expect(f).not.toMatch(/codex-sub.*\b0%/);
-    expect(f).toContain("paused until");
-    expect(f).toMatchSnapshot();
-  });
-
-  it("workers, tasks and output render", () => {
-    expect(render(<Workers workers={snap.workers} selected={0} focused width={50} />).lastFrame()).toMatchSnapshot();
-    const tasks = render(<Tasks tasks={snap.tasks} selected={1} focused={false} width={60} height={10} />).lastFrame()!;
-    expect(tasks).toContain("T-006 QUEUED");
-    expect(tasks).toContain("(dependencies)");
-    expect(tasks).toMatchSnapshot();
-    const out = render(<Output title="frontend-1 (codex) · T-004" lines={["› editing src/panels/Watchlist.tsx", "› tool: shell pnpm test watchlist", "✗ check unit (3.1s)"]} height={6} width={70} scroll={0} raw={false} />).lastFrame()!;
-    expect(out).toContain("OUTPUT: frontend-1 (codex) · T-004");
-    expect(out).toMatchSnapshot();
-    expect(render(<Help />).lastFrame()).toContain("quit the UI (daemon keeps running)");
-    expect(render(<ReviewView data={{ task: { id: "T-003", title: "Quote contract", state: "PR_READY" }, stat: " a.ts | 2 +-", diff: null, checks: [{ checkId: "unit", ok: true, required: true }], gate: "gate.passed", findings: [{ severity: "nit", file: "a.ts", line: 3, message: "rename" }] }} showDiff={false} width={80} height={20} />).lastFrame()).toMatchSnapshot();
-  });
 });
 
 function fakeApi() {
-  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
   const listeners = new Set<(e: HarnessEvent) => void>();
   const api: TuiApi = {
-    call: async <T,>(method: string, params?: Record<string, unknown>) => {
-      calls.push({ method, ...(params ? { params } : {}) });
-      if (method === "status") return snap as T;
-      if (method === "logs") return { events: [] } as T;
-      if (method === "review.show") return { task: snap.tasks[0], stat: "", diff: "", checks: [], gate: "gate.passed", findings: [] } as T;
+    call: async <T,>(method: string, params: Record<string, unknown> = {}) => {
+      calls.push({ method, params });
+      if (method === "status") return snap() as T;
+      if (method === "events.list") return [] as T;
+      if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added line\n-removed line", checks: [{ checkId: "unit", ok: true, required: true }], gate: "gate.passed", findings: [], fileStats: [{ path: "src/ui/Watchlist.tsx", insertions: 12, deletions: 3 }] } as T;
+      if (method === "agent.message") return { taskId: "T-004", delivery: "now" } as T;
+      if (method === "task.add") return { id: "T-008" } as T;
+      if (method === "task.approve") return { approved: (params.ids as string[] | undefined) ?? [] } as T;
+      if (method === "plan") return { summary: "Two steps.", tasks: [{ id: "T-009", title: "Contract", role: "backend" }] } as T;
       return {} as T;
     },
     onEvent: (l) => {
@@ -90,103 +55,159 @@ function fakeApi() {
   return { api, calls, emit: (e: HarnessEvent) => listeners.forEach((l) => l(e)) };
 }
 
-const flush = () => new Promise((r) => setTimeout(r, 30));
+const flush = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+async function type(ui: ReturnType<typeof render>, text: string) {
+  ui.stdin.write(text);
+  await flush();
+}
+async function setup() {
+  const f = fakeApi();
+  const store = new TuiStore(f.api);
+  await store.start();
+  const onExit = vi.fn();
+  const ui = render(<App store={store} onExit={onExit} size={{ columns: 140, rows: 36 }} />);
+  await flush();
+  return { ...f, store, ui, onExit };
+}
 
-describe("app", () => {
-  it("renders the layout, streams output, and keys call the daemon", async () => {
-    const { api, calls, emit } = fakeApi();
-    const store = new TuiStore(api);
-    await store.start();
-    const onExit = vi.fn();
-    const ui = render(<App store={store} onExit={onExit} size={{ columns: 140, rows: 30 }} />);
-    await flush();
-    emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "tool_call", runId: "R-T-004-1", tool: "shell", summary: "pnpm test watchlist" } } } as HarnessEvent);
-    await flush();
-    const frame = ui.lastFrame()!;
-    expect(frame).toContain("harness · market-terminal");
-    expect(frame).toContain("WORKERS");
-    expect(frame).toContain("TASKS");
-    expect(frame).toContain("OUTPUT: frontend-1 (codex) · T-004");
-    expect(frame).toContain("› tool: shell pnpm test watchlist");
-    expect(frame).toContain("q quit · Q stop");
+describe("chat ui", () => {
+  it("renders logo, usage pills, agent tabs, stream, files sidebar, chat bar and status line", async () => {
+    const { ui, emit, store } = await setup();
+    emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "tool_call", runId: "R-T-004-1", tool: "Bash", summary: "pnpm test watchlist" } } } as HarnessEvent);
+    emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "file_change", runId: "R-T-004-1", path: "src/ui/Watchlist.tsx" } } } as HarnessEvent);
+    await flush(700);
+    const f = ui.lastFrame()!;
+    expect(f).toContain("✦ harness");
+    expect(f).toContain("62%");
+    expect(f).toContain("usage unknown");
+    expect(f).toContain("frontend-1");
+    expect(f).toContain("⏺ Bash(pnpm test watchlist)");
+    expect(f).toContain("✎ src/ui/Watchlist.tsx");
+    expect(f).toContain("📂 Files");
+    expect(f).toContain("+12");
+    expect(f).toContain("📋 Tasks");
+    expect(f).toContain("message frontend-1 about T-004");
+    expect(f).toContain("✦ market-terminal");
+    expect(f).toContain("■ stopped");
+    store.stop();
+  });
 
-    ui.stdin.write("r");
+  it("plain text messages the selected agent", async () => {
+    const { ui, calls, store } = await setup();
+    await type(ui, "use a constant for the port");
+    await type(ui, "\r");
+    expect(calls.find((c) => c.method === "agent.message")?.params).toMatchObject({ target: "T-004", text: "use a constant for the port" });
+    expect(ui.lastFrame()).toContain("delivered to T-004");
+    store.stop();
+  });
+
+  it("slash menu completes, runs commands, and shows overlays", async () => {
+    const { ui, calls, store } = await setup();
+    await type(ui, "/re");
+    expect(ui.lastFrame()).toContain("/resume");
+    expect(ui.lastFrame()).toContain("/review");
+    await type(ui, "\t");
+    expect(ui.lastFrame()).toContain("❯ /resume");
+    await type(ui, "\u0015"); // ignore ctrl-u
+    for (let i = 0; i < 10; i++) ui.stdin.write("\u007f");
     await flush();
+    await type(ui, "/run\r");
     expect(calls.some((c) => c.method === "run")).toBe(true);
-    ui.stdin.write("p");
+    expect(ui.lastFrame()).toContain("scheduler running 🚀");
+    await type(ui, "/diff\r");
     await flush();
-    expect(calls.find((c) => c.method === "pause")?.params).toEqual({ task: "T-004" });
-    ui.stdin.write("b");
-    await flush();
-    expect(calls.find((c) => c.method === "burst.set")?.params).toEqual({ enabled: false });
+    expect(ui.lastFrame()).toContain("📜 diff T-004");
+    expect(ui.lastFrame()).toContain("+added line");
+    await type(ui, "\u001B");
+    await type(ui, "/help\r");
+    expect(ui.lastFrame()).toContain("what you can type");
+    await type(ui, "\u001B");
+    await type(ui, "/nope\r");
+    expect(ui.lastFrame()).toContain("unknown command /nope");
+    store.stop();
+  });
 
-    // Approve a draft from the tasks panel.
-    ui.stdin.write("\t");
+  it("Tab switches agents; an idle agent turns text into a started task; the planner plans", async () => {
+    const { ui, calls, store } = await setup();
+    await type(ui, "/switch backend\r");
+    expect(ui.lastFrame()).toContain("tell backend-1 what to build");
+    await type(ui, "Add a health endpoint\r");
     await flush();
-    for (let i = 0; i < 3; i++) {
-      ui.stdin.write("\u001B[B");
-      await flush();
-    }
-    ui.stdin.write("a");
+    expect(calls.find((c) => c.method === "task.add")?.params).toMatchObject({ title: "Add a health endpoint", role: "backend", approve: true });
+    expect(calls.some((c) => c.method === "run")).toBe(true);
+    expect(ui.lastFrame()).toContain("T-008 created for backend");
+    await type(ui, "/switch planner\r");
+    expect(ui.lastFrame()).toContain("describe what you want built");
+    await type(ui, "Live quotes with a watchlist\r");
     await flush();
+    expect(calls.find((c) => c.method === "plan")?.params).toMatchObject({ document: "Live quotes with a watchlist" });
+    expect(ui.lastFrame()).toContain("1 draft task(s)");
+    store.stop();
+  });
+
+  it("/task with @role, /approve, /theme, history; Ctrl-C quits without stopping agents; /stop stops", async () => {
+    const { ui, calls, store, onExit } = await setup();
+    await type(ui, "/task Write docs @backend\r");
+    expect(calls.find((c) => c.method === "task.add")?.params).toMatchObject({ title: "Write docs", role: "backend" });
+    await type(ui, "/approve T-7\r");
     expect(calls.find((c) => c.method === "task.approve")?.params).toEqual({ ids: ["T-007"] });
-
-    ui.stdin.write("?");
-    await flush();
-    expect(ui.lastFrame()).toContain("Keys");
-    ui.stdin.write("\u001B");
-    await flush();
-
-    // q closes the UI only: no stop call reaches the daemon.
-    ui.stdin.write("q");
-    await flush();
+    await type(ui, "/theme matrix\r");
+    expect(ui.lastFrame()).toContain("theme: matrix");
+    await type(ui, "\u001B[A");
+    expect(ui.lastFrame()).toContain("❯ /theme matrix");
+    await type(ui, "\u0003"); // clears the input
+    await type(ui, "\u0003"); // quits
     expect(onExit).toHaveBeenCalledWith({ action: "quit" });
-    expect(calls.some((c) => c.method === "daemon.stop" || c.method === "stop")).toBe(false);
+    expect(calls.some((c) => c.method === "daemon.stop")).toBe(false);
+    ui.unmount();
+    const second = await setup();
+    await type(second.ui, "/stop\r");
+    expect(second.onExit).toHaveBeenCalledWith({ action: "stop" });
     store.stop();
+    second.store.stop();
   });
 
-  it("a on a running worker exits to attach; Q asks to stop everything", async () => {
-    const { api } = fakeApi();
-    const store = new TuiStore(api);
-    await store.start();
-    const onExit = vi.fn();
-    const ui = render(<App store={store} onExit={onExit} size={{ columns: 140, rows: 30 }} />);
-    await flush();
-    ui.stdin.write("a");
-    await flush();
-    expect(onExit).toHaveBeenCalledWith({ action: "attach", target: "frontend-1" });
-    const ui2 = render(<App store={store} onExit={onExit} size={{ columns: 140, rows: 30 }} />);
-    await flush();
-    ui2.stdin.write("Q");
-    await flush();
-    expect(onExit).toHaveBeenLastCalledWith({ action: "stop" });
+  it("/attach exits to take over the current task", async () => {
+    const { ui, store, onExit } = await setup();
+    await type(ui, "/attach\r");
+    expect(onExit).toHaveBeenCalledWith({ action: "attach", target: "T-004" });
     store.stop();
-    ui.unmount();
-    ui2.unmount();
   });
+});
 
-  it("creates a task and sets a limit through forms", async () => {
-    const { api, calls } = fakeApi();
-    const store = new TuiStore(api);
-    await store.start();
-    const ui = render(<App store={store} onExit={() => undefined} size={{ columns: 140, rows: 30 }} />);
-    await flush();
-    ui.stdin.write("n");
-    await flush();
-    for (const c of "Add tests") ui.stdin.write(c);
-    await flush();
-    ui.stdin.write("\r");
-    await flush();
-    expect(calls.find((c) => c.method === "task.add")?.params).toEqual({ title: "Add tests", role: "frontend" });
-    ui.stdin.write("l");
-    await flush();
-    expect(ui.lastFrame()).toContain("LIMITS codex-sub");
-    for (const c of "70%") ui.stdin.write(c);
-    await flush();
-    ui.stdin.write("\r");
-    await flush();
-    expect(calls.find((c) => c.method === "limits.set")?.params).toEqual({ route: "codex-sub", window: "5h", budget: "70%" });
-    ui.unmount();
-    store.stop();
+describe("pieces", () => {
+  it("parses input and completes commands", () => {
+    expect(parseInput("hello")).toEqual({ kind: "message", text: "hello" });
+    expect(parseInput("/rev T-4")).toEqual({ kind: "command", name: "review", args: "T-4", known: true });
+    expect(parseInput("/re")).toMatchObject({ known: false });
+    expect(completions("/").length).toBeGreaterThan(15);
+    expect(completions("/th").map((c) => c.name)).toEqual(["theme"]);
+    expect(completions("/theme x")).toEqual([]);
+  });
+  it("makes gradients", () => {
+    const g = gradient("abc", ["#000000", "#ffffff"]);
+    expect(g.map((x) => x.color)).toEqual(["#000000", "#808080", "#ffffff"]);
+  });
+  it("renders a stream with your messages, tools, checks and findings", () => {
+    const f = render(
+      <Stream
+        t={THEMES.neon!}
+        width={80}
+        height={12}
+        scroll={0}
+        entries={[
+          { kind: "you", text: "make it faster", ts: NOW },
+          { kind: "say", text: "Profiling the render loop.", ts: NOW },
+          { kind: "tool", text: "Bash", detail: "pnpm bench", ts: NOW },
+          { kind: "check", text: "✗ unit", detail: "1.2s", ts: NOW },
+          { kind: "finding", text: "missing null check", detail: "blocker a.ts:3", ts: NOW },
+        ]}
+      />,
+    ).lastFrame()!;
+    expect(f).toContain("❯ make it faster");
+    expect(f).toContain("⏺ Profiling the render loop.");
+    expect(f).toContain("⏺ Bash(pnpm bench)");
+    expect(f).toContain("⎿ ✗ unit 1.2s");
+    expect(f).toContain("[blocker a.ts:3] missing null check");
   });
 });

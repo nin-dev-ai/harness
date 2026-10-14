@@ -12,20 +12,21 @@ You declare roles (`frontend: codex`, `backend: claude`, `reviewer: cursor`), an
 It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset.
 
 ```
- harness · market-terminal                        mode: approved-scope · scheduler: running · burst: ON
-┌ USAGE ───────────────────────────────────────────────────────────────────────────────────────────┐
-│ claude-sub   5h ▓▓▓▓▓▓░░░░  62%  resets 01:00 (3h27m)  [vendor]   7d ▓▓▓░░░░░░░ 33%  [vendor]       │
-│ cursor-key   5h unknown   7d unknown   budget ▓░░░░░░░░░ 8% of budget (3 of 40 runs/day) [manual]  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ WORKERS ─────────────────────────┐┌ OUTPUT: frontend-1 (codex) · T-004 · harness/frontend/T-004-… ┐
-│ ▶ frontend-1  codex   RUNNING    ││ › editing src/ui/Watchlist.tsx                                 │
-│   T-004 Watchlist panel 12m      ││ › tool: shell pnpm test watchlist                              │
-│ ▶ backend-1   claude  RUNNING    ││ ✗ check unit (3.1s)                                            │
-│ ○ reviewer-1  cursor  IDLE       ││ › fixing freshness threshold...                                │
-│ TASKS                            ││                                                                │
-│ T-006 QUEUED  frontend → T-004,5 ││                                                                │
-│ T-003 PR_READY backend ✓ gate    ││                                                                │
-└──────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
+✦ harness · market-terminal                                                                        22:06
+✻ claude-sub 5h ████░░ 62% ↺01:00   ◆ codex-sub 5h ██░░░░ 31% ↺03:12   ▲ cursor-key budget 3 of 40 runs/day
+ ⠏ backend-1 ✻ claude · T-002   ⠏ frontend-1 ◆ codex · T-001   · reviewer-1 ▲ cursor   · planner-1 ✻ claude
+✻ backend-1 · T-002 Quote feed adapter                                  ╭──────────────────────────────────╮
+❯ use a constant for the poll interval                                  │ 📂 Files · T-002 +14 -2          │
+· paused · user                                                         │   +12 -2   src/server/feed.ts    │
+── resume run on claude-sub R-T-002-2 ───────────────────────────────   │   +2  -0   src/server/config.ts  │
+⏺ Moving the interval into config.ts                                    │ 📋 Tasks                         │
+⏺ Bash(npm test)                                                        │ ⚙ T-001 Watchlist panel          │
+  ⎿ ✎ src/server/config.ts                                              │ ⚙ T-002 Quote feed adapter       │
+  ⎿ ✓ unit 1.2s                                                         │ 📝 T-003 Wire panel to feed      │
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ❯  message backend-1 about T-002…   / for commands                                                     │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ✦ market-terminal  ⎇ harness/integration  ▶ running  ⚡ burst  ✅ 3  ⚙ 2  ⏳ 1     /help · Tab agents · Ctrl-C quit
 ```
 
 ## Quick start
@@ -43,10 +44,23 @@ Try it without spending any quota (fake agents, a sample repo, plan → run → 
 pnpm demo
 ```
 
-Then, in your own repo:
+Then, in your own repo, just type `harness` (like `claude`). The first time it sets the repo up for you:
 
 ```sh
 cd ~/code/my-repo
+harness
+```
+
+Type what you want into the chat bar:
+
+- **Plain text** goes to the selected agent. A busy agent pauses at a safe point, reads it and carries on. An idle agent turns it into a new task. The planner turns it into a plan.
+- **`/`** opens a command menu: `/switch`, `/task`, `/plan`, `/approve`, `/run`, `/review`, `/diff`, `/accept`, `/usage`, `/theme`…
+- **Tab** switches agents. **Ctrl-C** closes the screen (agents keep working); `/stop` stops everything.
+- **`/theme neon|sunset|matrix|ocean|agnoster|mono`** changes the look. `agnoster` uses powerline arrows, like oh-my-zsh.
+
+Everything is also a plain command, for scripts:
+
+```sh
 harness init           # detects CLIs and sign-in, proposes .harness/checks.yaml, prints a readiness report
 harness doctor         # exits 1 if anything blocks a run, with the exact fix command
 # edit harness.yaml: routes (vendor + auth + model) and roles (who writes where)

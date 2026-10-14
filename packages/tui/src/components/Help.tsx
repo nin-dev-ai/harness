@@ -1,31 +1,28 @@
 import { Box, Text } from "ink";
+import { COMMANDS } from "../commands.js";
+import type { Theme } from "../theme.js";
+import { GradientText } from "./Logo.js";
 
-const ROWS: [string, string][] = [
-  ["↑ ↓ / Tab", "move between workers and tasks"],
-  ["Enter", "open the selected worker's live output full screen"],
-  ["a", "attach: take over the worker interactively (on a DRAFT task: approve it)"],
-  ["p / P", "pause the selected worker / pause everything"],
-  ["r", "start or resume the scheduler"],
-  ["v", "review the selected task (diff, checks, findings, accept or reject)"],
-  ["b", "toggle burst mode"],
-  ["l", "limits editor for the selected route"],
-  ["n", "new task"],
-  ["t", "toggle raw output"],
-  ["PgUp / PgDn", "scroll output"],
-  ["q / Q", "quit the UI (daemon keeps running) / quit and stop everything"],
-];
-
-export function Help() {
+export function Help({ t }: { t: Theme }) {
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1}>
-      <Text bold>Keys</Text>
-      {ROWS.map(([k, d]) => (
-        <Text key={k}>
-          {k.padEnd(14)} {d}
+    <Box flexDirection="column" borderStyle="round" borderColor={t.accent} paddingX={1}>
+      <GradientText text="✦ what you can type" t={t} bold />
+      <Text> </Text>
+      <Text>
+        <Text color={t.you}>plain text</Text> → talks to the selected agent (it pauses safely, reads it, carries on).
+      </Text>
+      <Text>{"             "}On an idle agent it becomes a new task for that agent. On the planner it becomes a plan.</Text>
+      <Text> </Text>
+      {COMMANDS.map((c) => (
+        <Text key={c.name}>
+          <Text color={t.accent}>{`/${c.name}`.padEnd(10)}</Text>
+          <Text color={t.dim}>{c.args.padEnd(26)}</Text>
+          {c.desc}
         </Text>
       ))}
       <Text> </Text>
-      <Text color="gray">The daemon owns all state. Closing this UI never stops work.</Text>
+      <Text color={t.dim}>Tab / Shift-Tab switch agents · ↑↓ history · PgUp/PgDn scroll · Esc close · Ctrl-C clear/quit</Text>
+      <Text color={t.dim}>The daemon owns all state: closing this screen never stops the agents.</Text>
     </Box>
   );
 }
