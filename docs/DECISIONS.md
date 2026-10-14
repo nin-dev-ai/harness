@@ -75,3 +75,11 @@ Codex can print output before `thread.started`. The process runner holds events 
 - **Unattended `ask`** approvals are scoped to one task, route, run kind and attempt, so they're never reused for a later dispatch.
 - **`harness approve <id>`** approves a DRAFT task and also grants that task's pending approvals.
 - The one-route-per-vendor fallback rule exempts the `fake` test vendor.
+## 2026-10-14 · Long socket paths
+macOS limits Unix socket paths to about 104 bytes. When `$HARNESS_HOME/daemon.sock` would be longer, the socket goes to `/tmp/harness-<hash of home>.sock`.
+
+## 2026-10-14 · `a` in the UI
+The PRD uses `a` for both "approve a draft" (Daily use) and "attach" (keybindings). In the UI, `a` on a **DRAFT task** in the Tasks panel approves it; anywhere else `a` attaches. `harness approve` and `harness attach` stay separate commands.
+
+## 2026-10-14 · Burst toggle
+`b` writes `burst.enabled` to harness.yaml (so the choice survives restarts) and reloads the project.

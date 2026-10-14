@@ -49,7 +49,7 @@ export function bar(pct: number | null, width = 10): string {
 /** One usage window: never shows unknown as 0. */
 export function windowText(w: WindowView, now: string, s: Style): string {
   const tag = `[${w.source}]${w.stale ? " stale" : ""}`;
-  const body = `${w.kind} ${bar(w.usedPct)} ${w.display.padStart(7)}  resets ${until(now, w.resetsAt)}  ${w.capPct < 100 ? `cap ${w.capPct}%  ` : ""}${tag}`;
+  const body = `${w.kind} ${bar(w.usedPct)} ${w.display.padStart(7)}${w.detail ? ` (${w.detail})` : ""}  resets ${until(now, w.resetsAt)}  ${w.capPct < 100 ? `cap ${w.capPct}%  ` : ""}${tag}`;
   return w.stale ? s.dim(body) : body;
 }
 

@@ -7,9 +7,9 @@ export const StatusJsonSchema = z.object({
   scheduler: z.object({ running: z.boolean(), until: z.string().nullable(), burst: z.boolean() }),
   now: z.string(),
   workers: z.array(
-    WorkerSchema.extend({ vendor: z.string(), taskId: z.string().nullable(), taskTitle: z.string().nullable(), runKind: z.string().nullable(), elapsedMs: z.number().nullable() }),
+    WorkerSchema.extend({ vendor: z.string(), route: z.string().nullable(), taskId: z.string().nullable(), taskTitle: z.string().nullable(), runKind: z.string().nullable(), elapsedMs: z.number().nullable() }),
   ),
-  tasks: z.array(TaskSchema.extend({ needsHumanReason: z.string().nullable().optional() })),
+  tasks: z.array(TaskSchema.extend({ needsHumanReason: z.string().nullable().optional(), lastRunId: z.string().nullable().optional() })),
   routes: z.array(
     z.object({
       route: z.string(),
@@ -20,7 +20,7 @@ export const StatusJsonSchema = z.object({
       pauseSource: z.string().nullable(),
       windows: z.array(
         z.object({
-          route: z.string(), vendor: z.string(), kind: z.enum(["5h", "7d", "budget"]), usedPct: z.number().nullable(), display: z.string(),
+          route: z.string(), vendor: z.string(), kind: z.enum(["5h", "7d", "budget"]), usedPct: z.number().nullable(), display: z.string(), detail: z.string().optional(),
           resetsAt: z.string().nullable(), source: z.enum(["vendor", "manual", "inferred"]), observedAt: z.string(), stale: z.boolean(), capPct: z.number(),
         }),
       ),
