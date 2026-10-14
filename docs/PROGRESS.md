@@ -6,7 +6,7 @@ Definition of done per milestone: `pnpm typecheck && pnpm lint && pnpm test` gre
 - [x] **M1 Core and fake adapter** — Zod schemas (config, task, run, worker, window, events, rpc), ids, FakeClock, task/worker state machines with exhaustive transition tests, `AgentAdapter`, process-group runner, scripted fake agent, shared adapter contract suite (cancel leaves no orphans).
 - [x] **M2 Storage and config** — SQLite (WAL) with numbered migrations; `Store.append` validates, logs and projects every event in one transaction; projections rebuild from the log (tested); repos for tasks, runs, workers, windows, events, approvals. Config loader with line-numbered errors, cross-field rules (missing routes, same-vendor fallbacks, same-route warnings), comment-preserving edits, check detection (npm/pnpm/yarn/bun, Python, Go, Rust, Make), task files and cycle detection.
 - [x] **M3 Workspace** — git wrapper (argv, no shell, isolated env), integration branch, idempotent per-task worktrees, WIP checkpoints, changed-files/diff/working-tree hash, revert of out-of-scope paths, rebase + squash + re-verify + fast-forward merge, conflicts listed and never resolved, writes refused outside `harness/**`.
-- [ ] M4 Verify
+- [x] **M4 Verify** — argv checks runner (no shell, process-group timeout, env limited to `env_pass` + PATH/HOME, last 200 lines), failure signatures stable across paths/line numbers/timings, gate outcome, setup runner, readiness report with red-baseline block.
 - [ ] M5 Vendor spikes
 - [ ] M6 Real adapters
 - [ ] M7 Daemon core
