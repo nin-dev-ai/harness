@@ -1,2 +1,6 @@
-// @harness/workspace — implemented in M3.
-export {};
+export * from "./git.js";
+export * from "./branch.js";
+export * from "./worktree.js";
+export * from "./checkpoint.js";
+export * from "./diff.js";
+export * from "./merge.js";

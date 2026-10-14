@@ -15,5 +15,7 @@ export default defineConfig({
     passWithNoTests: true,
     testTimeout: 20_000,
     pool: "forks",
+    // Tests never depend on the user's git config.
+    env: { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
   },
 });
