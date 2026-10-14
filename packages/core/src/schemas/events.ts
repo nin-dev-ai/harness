@@ -85,6 +85,8 @@ export const EVENT_PAYLOADS = {
   "approval.requested": z.object({ approvalId: s, category: s, context: s, action: opt(s) }),
   "approval.granted": z.object({ approvalId: s }),
   "approval.denied": z.object({ approvalId: s, comment: opt(s) }),
+  // Chat
+  "human.message": z.object({ text: s, target: opt(s) }),
   // Scheduler
   "scheduler.changed": z.object({ running: z.boolean(), burst: opt(z.boolean()), until: opt(s.nullable()), reason: opt(s) }),
   // System

@@ -75,6 +75,11 @@ export function buildReviewRepairPrompt(i: { taskId: string; attempt: number; at
   });
 }
 
+/** Messages typed by the person into the chat bar, delivered on the agent's next turn. */
+export function buildMessagePrompt(taskId: string, messages: string[]): string {
+  return render("message", { taskId, messages: messages.map((m) => `> ${m.trim().split("\n").join("\n> ")}`).join("\n\n") });
+}
+
 /** Prompt to continue a resumed vendor session after a pause. */
 export function buildResumePrompt(taskId: string): string {
   return render("resume", { taskId });

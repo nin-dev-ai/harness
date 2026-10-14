@@ -4,6 +4,7 @@ import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskState 
 import { readTaskFile } from "@harness/config";
 import {
   buildFreshResumePrompt,
+  buildMessagePrompt,
   buildRepairPrompt,
   buildResumePrompt,
   buildReviewPrompt,
@@ -344,11 +345,13 @@ export class ProjectEngine {
     let prompt: string;
     let resumeSessionId: string | undefined;
 
+    const notes = this.pendingMessages(task.id);
     if (item.kind === "repair") {
       kind = "repair";
       prompt = await this.repairPrompt(task, ws.path);
       resumeSessionId = this.lastSession(task.id, route);
       if (!resumeSessionId) prompt = `${this.taskPrompt(task)}\n${prompt}`;
+      if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
     } else if (last) {
       // Continue earlier work: same session if we can, else a fresh one with the checkpoint summary.
       kind = "resume";
@@ -356,14 +359,16 @@ export class ProjectEngine {
       const expired = last.errorKind === "session_expired";
       if (session && !expired) {
         resumeSessionId = session;
-        prompt = buildResumePrompt(task.id);
+        prompt = notes.length ? buildMessagePrompt(task.id, notes) : buildResumePrompt(task.id);
       } else {
         prompt = buildFreshResumePrompt(this.taskPrompt(task), (await diffSummary(ws.path, this.p.config.integration_branch)).stat);
+        if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
       }
       this.p.emit("run.resumed", { ...(resumeSessionId ? { sessionId: resumeSessionId } : {}), fresh: !resumeSessionId }, { taskId: task.id });
       this.p.transition(task.id, "RUNNING", task.state === "PAUSED" ? "resume after limit" : "resume");
     } else {
       prompt = this.taskPrompt(task);
+      if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
       this.p.emit("task.updated", { fields: { attempts: task.attempts + 1 } }, { taskId: task.id });
       this.p.transition(task.id, "RUNNING");
     }
@@ -513,8 +518,9 @@ export class ProjectEngine {
       return;
     }
     if (outcome.state === "PAUSED") {
-      // Paused by the user.
+      // Paused by the user, or stopped to deliver a chat message (then it goes straight back).
       this.p.transition(taskId, "PAUSED", "user");
+      if (this.pendingMessages(taskId).length) this.p.transition(taskId, "QUEUED", "message from the user");
       releaseWorker();
       return;
     }
@@ -862,6 +868,48 @@ export class ProjectEngine {
       this.p.transition(taskId, "QUEUED", "resume automation after takeover");
       this.kick();
     }
+  }
+
+  // ── chat ─────────────────────────────────────────────────────────────
+
+  /** Messages typed since the task's last implementer run started: delivered on its next turn. */
+  pendingMessages(taskId: string): string[] {
+    const evs = this.p.store.events.list({ projectId: this.p.id, taskId, types: ["human.message", "run.started"] });
+    const out: string[] = [];
+    for (const e of evs) {
+      if (e.type === "run.started" && e.payload.kind !== "review" && e.payload.kind !== "plan") out.length = 0;
+      else if (e.type === "human.message") out.push(e.payload.text);
+    }
+    return out;
+  }
+
+  /**
+   * A message from the chat bar to the agent working on a task. A running
+   * agent is stopped at a safe point (work checkpointed) and resumed on the
+   * same session with the message; otherwise it is delivered on its next turn.
+   */
+  async message(target: string, text: string): Promise<{ taskId: string; delivery: "now" | "next-turn" | "sent-back" }> {
+    const taskId = this.resolveTarget(target);
+    const task = this.p.task(taskId);
+    if (task.state === "MERGED" || task.state === "CANCELLED") throw Object.assign(new Error(`${taskId} is ${task.state}; start a new task instead`), { code: "CONFLICT" });
+    const live = this.live.get(taskId);
+    if (live?.kind === "review") throw Object.assign(new Error(`${taskId} is being reviewed (read-only); message it after the review`), { code: "CONFLICT" });
+    this.p.emit("human.message", { text, target }, { taskId });
+    if (live) {
+      await this.supervisor.stop(live.runId, "pause");
+      return { taskId, delivery: "now" };
+    }
+    if (task.state === "PR_READY") {
+      this.requestRepair(task, "human");
+      this.kick();
+      return { taskId, delivery: "sent-back" };
+    }
+    if (["NEEDS_HUMAN", "STALE"].includes(task.state) || (task.state === "PAUSED" && this.pauseCause(taskId) === "user")) {
+      this.p.transition(taskId, "QUEUED", "message from the user");
+      this.kick();
+      return { taskId, delivery: "now" };
+    }
+    return { taskId, delivery: "next-turn" };
   }
 
   /** Events of interest for a task (for `review` and `task show`). */

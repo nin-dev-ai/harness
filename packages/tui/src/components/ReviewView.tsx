@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { clip } from "../format.js";
-import { theme } from "../theme.js";
+import { stateColor, type Theme } from "../theme.js";
 
 export interface ReviewData {
   task: { id: string; title: string; state: string };
@@ -9,37 +9,53 @@ export interface ReviewData {
   checks: { checkId: string; ok: boolean; required: boolean }[];
   gate: string | null;
   findings: { severity: string; file: string | null; line: number | null; message: string }[];
+  fileStats?: { path: string; insertions: number; deletions: number }[];
 }
 
-export function ReviewView({ data, showDiff, width, height }: { data: ReviewData; showDiff: boolean; width: number; height: number }) {
-  const body = showDiff ? (data.diff ?? "(no diff)").split("\n") : (data.stat ?? "(worktree removed)").split("\n");
+/** Checks, findings and changes, or the full colored diff, for one task. */
+export function ReviewView({ data, showDiff, width, height, scroll, t }: { data: ReviewData; showDiff: boolean; width: number; height: number; scroll: number; t: Theme }) {
+  const lines = showDiff ? (data.diff ?? "(no diff)").split("\n") : [];
+  const avail = Math.max(3, height - 4);
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1} width={width}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.accent} paddingX={1} width={width} height={height}>
       <Text bold>
-        REVIEW {data.task.id} {clip(data.task.title, width - 30)} <Text color={theme.state(data.task.state)}>{data.task.state}</Text>
+        {showDiff ? "📜 diff" : "🔍 review"} {data.task.id} {clip(data.task.title, width - 40)} <Text color={stateColor(t, data.task.state)}>{data.task.state}</Text>
       </Text>
-      <Text bold>Checks ({data.gate ?? "not run"})</Text>
-      {data.checks.map((c) => (
-        <Text key={c.checkId} color={c.ok ? theme.ok : theme.bad}>
-          {"  "}
-          {c.ok ? "✓" : "✗"} {c.checkId}
-          {c.required ? "" : " (optional)"}
-        </Text>
-      ))}
-      <Text bold>Findings</Text>
-      {data.findings.length === 0 && <Text color={theme.dim}>  (none)</Text>}
-      {data.findings.map((f, i) => (
-        <Text key={i} color={f.severity === "blocker" ? theme.bad : f.severity === "major" ? theme.warn : undefined}>
-          {"  "}[{f.severity}] {f.file ? `${f.file}${f.line ? `:${f.line}` : ""} ` : ""}
-          {clip(f.message, width - 30)}
-        </Text>
-      ))}
-      <Text bold>{showDiff ? "Diff" : "Changes"}</Text>
-      {body.slice(0, Math.max(3, height - 10 - data.checks.length - data.findings.length)).map((l, i) => (
-        <Text key={i} color={l.startsWith("+") ? theme.ok : l.startsWith("-") ? theme.bad : undefined} wrap="truncate-end">
-          {clip(l, width - 4)}
-        </Text>
-      ))}
+      {showDiff ? (
+        lines.slice(scroll, scroll + avail).map((l, i) => (
+          <Text key={i} wrap="truncate-end" color={l.startsWith("+++") || l.startsWith("---") ? t.dim : l.startsWith("+") ? t.ok : l.startsWith("-") ? t.bad : l.startsWith("@@") ? t.accent : undefined} bold={l.startsWith("diff --git")}>
+            {l || " "}
+          </Text>
+        ))
+      ) : (
+        <>
+          <Text bold>Checks <Text color={t.dim}>({data.gate ?? "not run"}, run by harness)</Text></Text>
+          {data.checks.length === 0 ? <Text color={t.dim}>  none yet</Text> : null}
+          {data.checks.map((c) => (
+            <Text key={c.checkId} color={c.ok ? t.ok : t.bad}>
+              {"  "}
+              {c.ok ? "✓" : "✗"} {c.checkId}
+              {c.required ? "" : " (optional)"}
+            </Text>
+          ))}
+          <Text bold>Findings</Text>
+          {data.findings.length === 0 ? <Text color={t.dim}>  none</Text> : null}
+          {data.findings.map((f, i) => (
+            <Text key={i} wrap="truncate-end" color={f.severity === "blocker" ? t.bad : f.severity === "major" ? t.warn : undefined}>
+              {"  "}[{f.severity}] {f.file ? `${f.file}${f.line ? `:${f.line}` : ""} ` : ""}
+              {f.message}
+            </Text>
+          ))}
+          <Text bold>Files</Text>
+          {(data.fileStats ?? []).map((f) => (
+            <Text key={f.path} wrap="truncate-end">
+              <Text color={t.ok}>{`+${f.insertions}`.padStart(5)}</Text> <Text color={t.bad}>{`-${f.deletions}`.padEnd(5)}</Text> {f.path}
+            </Text>
+          ))}
+          <Text> </Text>
+          <Text color={t.dim}>/diff full diff · /accept merge · /reject &lt;comment&gt; send back · Esc close</Text>
+        </>
+      )}
     </Box>
   );
 }

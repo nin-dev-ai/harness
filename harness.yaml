@@ -1,0 +1,44 @@
+version: 1
+project: harness
+integration_branch: harness/integration   # task branches merge here, never into main
+base_branch: main
+
+routes:
+  claude-sub:
+    vendor: claude
+    auth: subscription
+  codex-sub:
+    vendor: codex
+    auth: subscription
+  cursor-key:
+    vendor: cursor
+    auth: api_key                # reads CURSOR_API_KEY
+
+roles:
+  planner:
+    route: claude-sub
+    mode: readonly
+    instructions: "Split work into small, independently testable tasks."
+  backend:
+    route: claude-sub
+    mode: write
+    concurrency: 1
+  frontend:
+    route: codex-sub
+    mode: write
+    concurrency: 1
+  reviewer:
+    route: cursor-key
+    mode: readonly
+    independent_of: [frontend, backend]
+
+limits:
+  max_attempts_per_task: 3
+  max_task_minutes: 60
+  max_parallel_workers: 3
+
+burst:
+  enabled: true
+
+policy:
+  autonomy: approved-scope

@@ -55,6 +55,65 @@ ${checks.map((c) => `- \`${c}\``).join("\n") || "- (no checks configured yet)"}
 - Add or update tests for behavior you change.
 `;
 
+/** Set up a repo: detect CLIs, write config and checks, readiness report. Returns what it set up. */
+export async function initProject(ctx: Ctx, o: { baseline: boolean; writeAgentsMd?: boolean; quiet?: boolean }): Promise<{ vendors: string[]; wroteConfig: boolean }> {
+  const io = o.quiet ? { ...ctx.io, out: () => undefined } : ctx.io;
+  ctx = { ...ctx, io, print: (t: string) => io.out(t) };
+  let wroteConfig = false;
+  let usableVendors: string[] = [];
+  const s = ctx.s();
+  if (!(await isGitRepo(ctx.dir()))) throw new CliExit(EXIT.failed, `${ctx.dir()} is not a git repository. Run \`git init\` first.`);
+  const root = await repoRoot(ctx.dir());
+  fs.mkdirSync(harnessHome(io.env), { recursive: true });
+
+  io.out(s.bold("Vendor CLIs"));
+  const vendors = await detectVendors();
+  io.out(vendorTable(vendors));
+  const usable = (Object.entries(vendors) as [Vendor, DetectResult][]).filter(([, r]) => r.installed && r.signedIn !== "no").map(([v]) => v);
+  usableVendors = usable;
+
+  const cfgPath = path.join(root, CONFIG_FILE);
+  if (!fs.existsSync(cfgPath)) {
+    writeFileAtomic(cfgPath, starterConfig(slugify(path.basename(root)) || "project", usable));
+    wroteConfig = true;
+    io.out(`\nWrote ${CONFIG_FILE} with routes for: ${usable.join(", ") || "(none found: edit routes before running)"}`);
+  } else io.out(`\n${CONFIG_FILE} exists; left unchanged.`);
+
+  const checksPath = path.join(root, CHECKS_FILE);
+  if (!fs.existsSync(checksPath)) {
+    const d = detectChecks(root);
+    writeChecksConfig(root, d.checks);
+    io.out(`Wrote ${CHECKS_FILE}:`);
+    for (const line of d.sources) io.out(`  ${line}`);
+    if (!d.sources.length) io.out("  (no checks detected: add them before running)");
+  } else io.out(`${CHECKS_FILE} exists; left unchanged.`);
+
+  fs.mkdirSync(path.join(root, TASKS_DIR), { recursive: true });
+  const gi = path.join(root, ".gitignore");
+  const current = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
+  const need = [".harness/worktrees/", ".harness/runs/"].filter((l) => !current.split("\n").includes(l));
+  if (need.length) fs.writeFileSync(gi, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${need.join("\n")}\n`);
+
+  const checks = loadChecksConfig(root).config;
+  if (!fs.existsSync(path.join(root, "AGENTS.md")) && o.writeAgentsMd) {
+    fs.writeFileSync(path.join(root, "AGENTS.md"), AGENTS_TEMPLATE(path.basename(root), checks.checks.map((c) => c.argv.join(" "))));
+    io.out("Wrote AGENTS.md (edit it to match your conventions).");
+  }
+
+  let baseline: CheckResult[] | undefined;
+  if (o.baseline && checks.checks.some((c) => c.required)) {
+    io.out("\nRunning required checks on the base branch (baseline)...");
+    const base = (await import("@harness/config")).loadHarnessConfig(root).config.base_branch;
+    baseline = await baselineChecks(root, base);
+  }
+  const report = assessReadiness({ root, checks, testsFound: countTestFiles(root), ...(baseline ? { baseline } : {}) });
+  io.out(`\n${formatReadiness(report)}`);
+  if (!report.agentsMd && !o.writeAgentsMd) io.out("  (run `harness init --write-agents-md` to create a starter AGENTS.md)");
+  io.out(`\nNext: edit ${CONFIG_FILE} roles, then \`harness task add\` or \`harness plan <prd>\`, then \`harness run\`.`);
+  if (report.grade === "blocked") throw new CliExit(EXIT.failed, "readiness: blocked (fix the baseline before running agents)");
+  return { vendors: usableVendors, wroteConfig };
+}
+
 export function register(program: Command, ctx: Ctx): void {
   program
     .command("init")
@@ -62,54 +121,6 @@ export function register(program: Command, ctx: Ctx): void {
     .option("--no-baseline", "skip running the required checks on the base branch")
     .option("--write-agents-md", "create a minimal AGENTS.md if it is missing")
     .action(async (o: { baseline: boolean; writeAgentsMd?: boolean }) => {
-      const { io } = ctx;
-      const s = ctx.s();
-      if (!(await isGitRepo(ctx.dir()))) throw new CliExit(EXIT.failed, `${ctx.dir()} is not a git repository. Run \`git init\` first.`);
-      const root = await repoRoot(ctx.dir());
-      fs.mkdirSync(harnessHome(io.env), { recursive: true });
-
-      io.out(s.bold("Vendor CLIs"));
-      const vendors = await detectVendors();
-      io.out(vendorTable(vendors));
-      const usable = (Object.entries(vendors) as [Vendor, DetectResult][]).filter(([, r]) => r.installed && r.signedIn !== "no").map(([v]) => v);
-
-      const cfgPath = path.join(root, CONFIG_FILE);
-      if (!fs.existsSync(cfgPath)) {
-        writeFileAtomic(cfgPath, starterConfig(slugify(path.basename(root)) || "project", usable));
-        io.out(`\nWrote ${CONFIG_FILE} with routes for: ${usable.join(", ") || "(none found: edit routes before running)"}`);
-      } else io.out(`\n${CONFIG_FILE} exists; left unchanged.`);
-
-      const checksPath = path.join(root, CHECKS_FILE);
-      if (!fs.existsSync(checksPath)) {
-        const d = detectChecks(root);
-        writeChecksConfig(root, d.checks);
-        io.out(`Wrote ${CHECKS_FILE}:`);
-        for (const line of d.sources) io.out(`  ${line}`);
-        if (!d.sources.length) io.out("  (no checks detected: add them before running)");
-      } else io.out(`${CHECKS_FILE} exists; left unchanged.`);
-
-      fs.mkdirSync(path.join(root, TASKS_DIR), { recursive: true });
-      const gi = path.join(root, ".gitignore");
-      const current = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
-      const need = [".harness/worktrees/", ".harness/runs/"].filter((l) => !current.split("\n").includes(l));
-      if (need.length) fs.writeFileSync(gi, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${need.join("\n")}\n`);
-
-      const checks = loadChecksConfig(root).config;
-      if (!fs.existsSync(path.join(root, "AGENTS.md")) && o.writeAgentsMd) {
-        fs.writeFileSync(path.join(root, "AGENTS.md"), AGENTS_TEMPLATE(path.basename(root), checks.checks.map((c) => c.argv.join(" "))));
-        io.out("Wrote AGENTS.md (edit it to match your conventions).");
-      }
-
-      let baseline: CheckResult[] | undefined;
-      if (o.baseline && checks.checks.some((c) => c.required)) {
-        io.out("\nRunning required checks on the base branch (baseline)...");
-        const base = (await import("@harness/config")).loadHarnessConfig(root).config.base_branch;
-        baseline = await baselineChecks(root, base);
-      }
-      const report = assessReadiness({ root, checks, testsFound: countTestFiles(root), ...(baseline ? { baseline } : {}) });
-      io.out(`\n${formatReadiness(report)}`);
-      if (!report.agentsMd && !o.writeAgentsMd) io.out("  (run `harness init --write-agents-md` to create a starter AGENTS.md)");
-      io.out(`\nNext: edit ${CONFIG_FILE} roles, then \`harness task add\` or \`harness plan <prd>\`, then \`harness run\`.`);
-      if (report.grade === "blocked") throw new CliExit(EXIT.failed, "readiness: blocked (fix the baseline before running agents)");
+      await initProject(ctx, o);
     });
 }

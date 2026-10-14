@@ -38,6 +38,8 @@ export async function workingTreeHash(worktree: string): Promise<string> {
 
 export interface DiffSummary {
   files: string[];
+  /** Per-file line counts (binary files count 0). */
+  fileStats: { path: string; insertions: number; deletions: number }[];
   insertions: number;
   deletions: number;
   stat: string;
@@ -55,12 +57,14 @@ export async function diffSummary(worktree: string, base: string): Promise<DiffS
   if (untracked.length) await gitRaw(worktree, ["reset", "-q", "--", ...untracked]);
   let insertions = 0;
   let deletions = 0;
+  const fileStats: DiffSummary["fileStats"] = [];
   for (const line of numstat.split("\n").filter(Boolean)) {
-    const [a, d] = line.split("\t");
+    const [a, d, p] = line.split("\t");
     insertions += Number(a) || 0;
     deletions += Number(d) || 0;
+    if (p) fileStats.push({ path: p, insertions: Number(a) || 0, deletions: Number(d) || 0 });
   }
-  return { files, insertions, deletions, stat };
+  return { files, fileStats, insertions, deletions, stat };
 }
 
 /** Unified diff relative to the merge base, truncated to `maxBytes`. */

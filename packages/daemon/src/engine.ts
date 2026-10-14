@@ -213,7 +213,7 @@ export class EnginePlugin implements DaemonPlugin {
         return {
           task: t,
           diff: wt && fs.existsSync(wt) ? await diffText(wt, base) : null,
-          stat: wt && fs.existsSync(wt) ? (await diffSummary(wt, base)).stat : null,
+          ...(wt && fs.existsSync(wt) ? await diffSummary(wt, base).then((d) => ({ stat: d.stat, fileStats: d.fileStats })) : { stat: null, fileStats: [] }),
           files: wt && fs.existsSync(wt) ? await changedFiles(wt, base) : [],
           checks: lastGate?.runId ? p.store.runs.checkResults(lastGate.runId) : [],
           gate: lastGate?.type ?? null,
@@ -295,6 +295,11 @@ export class EnginePlugin implements DaemonPlugin {
         new Planner(p, d.supervisor).applyRoles(a.proposal);
         e.kick();
         return { roles: Object.keys(p.config.roles) };
+      },
+      "agent.message": async (params, ctx) => {
+        const { e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ target: z.string(), text: z.string().min(1) }), params);
+        return e.message(a.target, a.text);
       },
       "attach.prepare": async (params, ctx) => {
         const { e } = ctxProject(params, ctx.attended);

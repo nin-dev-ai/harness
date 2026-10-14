@@ -1,6 +1,6 @@
 import type { HarnessEvent } from "@harness/core";
 import type { StatusSnapshot } from "@harness/daemon";
-import { formatRunEvent } from "./format.js";
+import { toEntry, type Entry } from "./format.js";
 
 /** What the UI needs from the daemon. The CLI adapts a DaemonClient to this; tests fake it. */
 export interface TuiApi {
@@ -9,13 +9,19 @@ export interface TuiApi {
   subscribe(): Promise<void>;
 }
 
-export interface OutputBuffer {
-  lines: string[];
-  raw: string[];
-  loaded: boolean;
+export interface Toast {
+  text: string;
+  kind: "ok" | "err" | "warn" | "info";
+  at: number;
 }
 
-const MAX_LINES = 1000;
+export interface FileStat {
+  path: string;
+  insertions: number;
+  deletions: number;
+}
+
+const MAX_ENTRIES = 800;
 
 /**
  * Client-side view state. Holds no authority: everything comes from the
@@ -23,14 +29,20 @@ const MAX_LINES = 1000;
  */
 export class TuiStore {
   snapshot: StatusSnapshot | null = null;
-  readonly outputs = new Map<string, OutputBuffer>();
-  /** Last run per worker and per task, from the event stream. */
-  readonly lastRunByWorker = new Map<string, string>();
-  readonly lastRunByTask = new Map<string, string>();
+  error: string | null = null;
+  /** The conversation per task: agent output, your messages, checks, review, merge. */
+  readonly entries = new Map<string, Entry[]>();
+  /** Local lines (command results) per view key. */
+  readonly local = new Map<string, Entry[]>();
+  readonly files = new Map<string, FileStat[]>();
+  readonly cost = new Map<string, { tokensIn: number; tokensOut: number; usd: number | null }>();
+  readonly lastTaskByWorker = new Map<string, string>();
+  toasts: Toast[] = [];
+  private loaded = new Set<string>();
   private listeners = new Set<() => void>();
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  private filesTimer = new Map<string, ReturnType<typeof setTimeout>>();
   private off: (() => void) | undefined;
-  error: string | null = null;
 
   constructor(readonly api: TuiApi) {}
 
@@ -43,6 +55,7 @@ export class TuiStore {
   stop(): void {
     this.off?.();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    for (const t of this.filesTimer.values()) clearTimeout(t);
   }
 
   onChange(l: () => void): () => void {
@@ -50,7 +63,7 @@ export class TuiStore {
     return () => this.listeners.delete(l);
   }
 
-  private emit(): void {
+  emit(): void {
     for (const l of this.listeners) l();
   }
 
@@ -68,62 +81,112 @@ export class TuiStore {
     this.refreshTimer ??= setTimeout(() => {
       this.refreshTimer = undefined;
       void this.refresh();
-    }, 200);
+    }, 150);
   }
 
-  buffer(runId: string): OutputBuffer {
-    let b = this.outputs.get(runId);
-    if (!b) {
-      b = { lines: [], raw: [], loaded: false };
-      this.outputs.set(runId, b);
+  toast(text: string, kind: Toast["kind"] = "info"): void {
+    this.toasts = [...this.toasts.slice(-3), { text, kind, at: Date.now() }];
+    this.emit();
+  }
+
+  /** A line in the stream that came from you or a command, not the daemon. */
+  note(view: string, kind: Entry["kind"], text: string, detail?: string): void {
+    const list = this.local.get(view) ?? [];
+    list.push({ kind, text, ts: new Date().toISOString(), ...(detail ? { detail } : {}) });
+    this.local.set(view, list.slice(-200));
+    this.emit();
+  }
+
+  private add(taskId: string, e: Entry): void {
+    const list = this.entries.get(taskId) ?? [];
+    list.push(e);
+    if (list.length > MAX_ENTRIES) list.splice(0, list.length - MAX_ENTRIES);
+    this.entries.set(taskId, list);
+  }
+
+  private track(e: HarnessEvent): void {
+    if (e.type === "run.event" && e.taskId && e.payload.event.type === "usage") {
+      const u = e.payload.event;
+      const c = this.cost.get(e.taskId) ?? { tokensIn: 0, tokensOut: 0, usd: null };
+      c.tokensIn += u.tokensIn ?? 0;
+      c.tokensOut += u.tokensOut ?? 0;
+      if (u.costUsd !== undefined) c.usd = (c.usd ?? 0) + u.costUsd;
+      this.cost.set(e.taskId, c);
     }
-    return b;
-  }
-
-  private push(runId: string, line: string | undefined, raw: unknown): void {
-    const b = this.buffer(runId);
-    if (line) b.lines.push(line);
-    b.raw.push(JSON.stringify(raw));
-    if (b.lines.length > MAX_LINES) b.lines.splice(0, b.lines.length - MAX_LINES);
-    if (b.raw.length > MAX_LINES) b.raw.splice(0, b.raw.length - MAX_LINES);
   }
 
   onEvent(e: HarnessEvent): void {
-    if (e.runId) {
-      if (e.workerId && e.type === "run.started") this.lastRunByWorker.set(e.workerId, e.runId);
-      if (e.taskId && e.type === "run.started") this.lastRunByTask.set(e.taskId, e.runId);
-      const line = formatRunEvent(e);
-      if (line || e.type === "run.event") this.push(e.runId, line, e.type === "run.event" ? e.payload.event : e.payload);
+    if (e.type === "worker.assigned" && e.workerId && e.taskId) this.lastTaskByWorker.set(e.workerId, e.taskId);
+    if (e.taskId) {
+      this.track(e);
+      const entry = toEntry(e);
+      if (entry) this.add(e.taskId, entry);
+      if (e.type === "run.event" && e.payload.event.type === "file_change") this.scheduleFiles(e.taskId);
+      if (e.type === "run.finished" || e.type === "branch.merged") this.scheduleFiles(e.taskId);
     }
+    if (e.type === "branch.merged") this.toast(`🎉 ${e.taskId} merged into ${e.payload.into}`, "ok");
+    else if (e.type === "task.needs_human") this.toast(`🙋 ${e.taskId} needs you: ${e.payload.reason}`, "err");
+    else if (e.type === "route.paused") this.toast(`⏸  ${e.payload.route} paused${e.payload.until ? ` until ${new Date(e.payload.until).toTimeString().slice(0, 5)}` : ""}`, "warn");
+    else if (e.type === "route.resumed") this.toast(`▶  ${e.payload.route} resumed`, "ok");
+    else if (e.type === "approval.requested") this.toast(`🔐 ${e.payload.approvalId}: ${e.payload.context}  (/approve ${e.payload.approvalId})`, "warn");
+    else if (e.type === "review.passed") this.toast(`👀 ${e.taskId} review passed`, "ok");
     this.scheduleRefresh();
     this.emit();
   }
 
-  /** Backfill a run's output from the daemon the first time it is shown. */
-  async load(runId: string): Promise<void> {
-    const b = this.buffer(runId);
-    if (b.loaded) return;
-    b.loaded = true;
+  /** Backfill a task's whole story the first time it is shown. */
+  async loadTask(taskId: string): Promise<void> {
+    if (this.loaded.has(taskId)) return;
+    this.loaded.add(taskId);
     try {
-      const r = await this.api.call<{ events: HarnessEvent[] }>("logs", { runId });
-      const lines: string[] = [];
-      const raw: string[] = [];
-      for (const e of r.events) {
-        const l = formatRunEvent(e);
-        if (l) lines.push(l);
-        if (e.type === "run.event") raw.push(JSON.stringify(e.payload.event));
+      const evs = await this.api.call<HarnessEvent[]>("events.list", { taskId });
+      const list: Entry[] = [];
+      for (const e of evs) {
+        this.track(e);
+        const entry = toEntry(e);
+        if (entry) list.push(entry);
       }
-      b.lines = [...lines, ...b.lines.filter((l) => !lines.includes(l))].slice(-MAX_LINES);
-      b.raw = raw.slice(-MAX_LINES);
+      const streamed = this.entries.get(taskId) ?? [];
+      const seen = new Set(list.map((x) => `${x.ts}|${x.text}`));
+      this.entries.set(taskId, [...list, ...streamed.filter((x) => !seen.has(`${x.ts}|${x.text}`))].slice(-MAX_ENTRIES));
     } catch {
-      // run unknown to the daemon (e.g. already pruned): show what streamed in
+      // task unknown: show what streams in
     }
+    void this.loadFiles(taskId);
     this.emit();
   }
 
-  /** The run to show for a worker: its live run, else its last one. */
-  runForWorker(workerId: string): string | undefined {
+  private scheduleFiles(taskId: string): void {
+    if (this.filesTimer.has(taskId)) return;
+    this.filesTimer.set(
+      taskId,
+      setTimeout(() => {
+        this.filesTimer.delete(taskId);
+        void this.loadFiles(taskId);
+      }, 500),
+    );
+  }
+
+  async loadFiles(taskId: string): Promise<void> {
+    try {
+      const r = await this.api.call<{ fileStats?: FileStat[] }>("review.show", { id: taskId });
+      if (r.fileStats) this.files.set(taskId, r.fileStats);
+      this.emit();
+    } catch {
+      // no worktree yet
+    }
+  }
+
+  /** The task an agent is on now, else the last one it worked on. */
+  taskForWorker(workerId: string): string | undefined {
     const w = this.snapshot?.workers.find((x) => x.id === workerId);
-    return w?.currentRun ?? this.lastRunByWorker.get(workerId);
+    return w?.taskId ?? this.lastTaskByWorker.get(workerId);
+  }
+
+  stream(view: string, taskId: string | undefined): Entry[] {
+    const a = taskId ? (this.entries.get(taskId) ?? []) : [];
+    const b = this.local.get(view) ?? [];
+    if (!b.length) return a;
+    return [...a, ...b].sort((x, y) => x.ts.localeCompare(y.ts));
   }
 }
