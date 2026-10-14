@@ -5,3 +5,7 @@ coverage/
 .DS_Store
 .harness/worktrees/
 .harness/runs/
+
+# Local harness config when dogfooding harness on this repo
+/harness.yaml
+/.harness/
