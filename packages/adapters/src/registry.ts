@@ -16,7 +16,8 @@ export function fakeScriptsFromEnv(env: NodeJS.ProcessEnv = process.env): ((req:
   if (!file) return undefined;
   return (req) => {
     const all = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-    const task = /^R-(T-\d+)-\d+$/.exec(req.runId)?.[1];
+    const task = /^R-(T-\d+|PLAN|ROLES)-\d+$/.exec(req.runId)?.[1];
+    if (task === "PLAN" || task === "ROLES") return FakeScriptSchema.parse(all[task] ?? { steps: [{ kind: "result", ok: false, summary: "no planner script" }] });
     if (req.mode === "readonly") {
       return FakeScriptSchema.parse(all[`${task}:review`] ?? all.review ?? { steps: [{ kind: "result", ok: true, summary: "reviewed", structured: { summary: "ok", findings: [] } }] });
     }

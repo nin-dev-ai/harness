@@ -8,6 +8,8 @@ import { parseUntil } from "../../apps/cli/src/commands/run.js";
 import type { Io } from "../../apps/cli/src/io.js";
 import { createTempRepo, type TempRepo } from "../helpers/temp-repo.js";
 import { DEFAULT_CHECKS, DEFAULT_CONFIG } from "../helpers/scenario.js";
+
+const PLANNER_CONFIG = DEFAULT_CONFIG.replace("roles:\n", "roles:\n  planner:\n    route: rev\n    mode: readonly\n");
 import { waitFor } from "../helpers/fake-clock.js";
 
 /** The `harness` CLI end to end: real daemon subprocess, fake agents. */
@@ -34,6 +36,10 @@ describe("cli", () => {
       JSON.stringify({
         "T-001": { steps: [{ kind: "file_change", path: "src/server/api.ts", content: "export const api = 1;\n" }, { kind: "result", ok: true, summary: "api done" }] },
         "T-002": { steps: [{ kind: "file_change", path: "src/ui/panel.ts", content: "export const panel = 1;\n" }, { kind: "result", ok: true, summary: "panel done" }] },
+        PLAN: { steps: [{ kind: "result", ok: true, summary: "plan", structured: { summary: "Two steps.", tasks: [
+          { key: "a", title: "Quote contract", role: "backend", size: "S", depends_on: [], acceptance: ["types exported"], files_hint: ["docs/contracts/q.ts"], contract_ref: null, description: "" },
+          { key: "b", title: "Quote panel", role: "frontend", size: "M", depends_on: ["a"], acceptance: ["renders"], files_hint: [], contract_ref: "docs/contracts/q.ts", description: "" },
+        ] } }] },
         "*": { steps: [{ kind: "hang" }] },
       }),
     );
@@ -57,7 +63,7 @@ describe("cli", () => {
     expect(fs.existsSync(path.join(repo.root, "AGENTS.md"))).toBe(true);
     expect(r.out).not.toMatch(/sk-ant|gho_|token/i);
     // Use the fake vendor for the rest of the suite.
-    repo.write("harness.yaml", DEFAULT_CONFIG);
+    repo.write("harness.yaml", PLANNER_CONFIG);
     repo.write(".harness/checks.yaml", DEFAULT_CHECKS);
     repo.commit("harness config");
   }, 60_000);
@@ -68,16 +74,16 @@ describe("cli", () => {
     expect(doc.code).toBe(0);
     expect(JSON.parse(doc.out).ok).toBe(true);
     const roles = JSON.parse((await sh("roles", "list", "--json")).out) as { name: string; route: string }[];
-    expect(roles.map((r) => r.name)).toEqual(["frontend", "backend", "reviewer"]);
+    expect(roles.map((r) => r.name)).toEqual(["planner", "frontend", "backend", "reviewer"]);
     expect((await sh("roles", "set", "backend", "--route", "nope")).code).toBe(1);
     const routes = JSON.parse((await sh("routes", "list", "--json")).out) as { name: string; unattended: string }[];
     expect(routes.find((r) => r.name === "slow")?.unattended).toBe("allow");
-    repo.write("harness.yaml", DEFAULT_CONFIG.replace("routes:\n  fast:", "routes:\n  sub:\n    vendor: fake\n    auth: subscription\n  fast:"));
+    repo.write("harness.yaml", PLANNER_CONFIG.replace("routes:\n  fast:", "routes:\n  sub:\n    vendor: fake\n    auth: subscription\n  fast:"));
     const denied = await sh("routes", "unattended", "sub", "allow");
     expect(denied.code).toBe(1);
     expect(denied.out).toContain("terms");
     expect((await sh("routes", "unattended", "sub", "allow", "--confirm", "sub")).code).toBe(0);
-    repo.write("harness.yaml", DEFAULT_CONFIG);
+    repo.write("harness.yaml", PLANNER_CONFIG);
   });
 
   it("adds, approves and runs tasks to MERGED through the daemon", async () => {
@@ -133,6 +139,17 @@ describe("cli", () => {
     expect((await sh("resume", "--all")).code).toBe(0);
     expect((await status()).scheduler.running).toBe(true);
   }, 40_000);
+
+  it("plans a PRD into draft tasks", async () => {
+    repo.write("docs/prd.md", "# Quotes\nShow live quotes.\n");
+    const r = await sh("plan", "docs/prd.md");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("Quote contract");
+    expect(r.out).toContain("2 draft task(s)");
+    const tasks = (await status()).tasks.filter((t) => t.title.startsWith("Quote"));
+    expect(tasks.map((t) => [t.state, t.dependsOn.length])).toEqual([["DRAFT", 0], ["DRAFT", 1]]);
+    expect((await sh("plan", "nope.md")).code).toBe(2);
+  }, 30_000);
 
   it("uses exit codes 2 for usage errors and 3 when the daemon is unreachable", async () => {
     expect((await sh("task", "add")).code).toBe(2);
