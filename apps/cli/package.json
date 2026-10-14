@@ -1,0 +1,35 @@
+{
+  "name": "@harness/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "harness": "dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "source": "./src/main.ts",
+      "types": "./dist/main.d.ts",
+      "default": "./dist/main.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@harness/core": "workspace:*",
+    "@harness/config": "workspace:*",
+    "@harness/storage": "workspace:*",
+    "@harness/adapters": "workspace:*",
+    "@harness/workspace": "workspace:*",
+    "@harness/verify": "workspace:*",
+    "@harness/quota": "workspace:*",
+    "@harness/policy": "workspace:*",
+    "@harness/planner": "workspace:*",
+    "@harness/github": "workspace:*",
+    "@harness/daemon": "workspace:*",
+    "@harness/tui": "workspace:*",
+    "commander": "^12.1.0",
+    "zod": "^3.24.0"
+  }
+}

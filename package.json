@@ -1,0 +1,39 @@
+{
+  "name": "harness-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.0",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter ./packages/** --filter ./apps/** run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "vitest run tests/e2e",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@harness/adapters": "workspace:*",
+    "@harness/config": "workspace:*",
+    "@harness/core": "workspace:*",
+    "@harness/daemon": "workspace:*",
+    "@harness/github": "workspace:*",
+    "@harness/planner": "workspace:*",
+    "@harness/policy": "workspace:*",
+    "@harness/quota": "workspace:*",
+    "@harness/storage": "workspace:*",
+    "@harness/tui": "workspace:*",
+    "@harness/verify": "workspace:*",
+    "@harness/workspace": "workspace:*",
+    "@types/node": "^20.17.0",
+    "eslint": "^9.20.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.24.0",
+    "vitest": "^3.2.0"
+  }
+}
