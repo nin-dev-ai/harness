@@ -1,0 +1,35 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`github > builds the PR body with tasks, checks, findings and usage 1`] = `
+"## Summary
+
+Draft PR from \`harness/integration\` into \`main\`, produced by harness for **market-terminal**. 2 task(s).
+
+## Tasks
+
+| Task | Title | Role | Route | Attempts | Checks | Review |
+| --- | --- | --- | --- | --- | --- | --- |
+| T-001 | Quote contract | backend | claude-sub | 1 | 2/2 passed | clean |
+| T-002 | Panel \\| v2 | frontend | codex-sub | 2 | 1/1 passed | 2 finding(s), 1 blocker(s) resolved |
+
+## Check results (final gate, run by harness, not by the agent)
+
+- **T-001**: ✅ unit (1.2s), ✅ build (optional)
+- **T-002**: ✅ unit (0.9s)
+
+## Reviewer findings
+
+- **T-002** [blocker] \`a.ts:3\` null check
+- **T-002** [nit] rename
+
+## Usage
+
+| Task | Runs | Tokens in / out | Cost |
+| --- | --- | --- | --- |
+| T-001 | 2 | 1000 / 200 | $0.12 |
+| T-002 | 4 | unknown | unknown |
+
+---
+Every task passed its required checks independently of the agent that wrote it. This PR is a draft; merging is your decision.
+"
+`;

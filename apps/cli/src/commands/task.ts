@@ -9,6 +9,7 @@ import { openProject } from "./_client.js";
 
 export function register(program: Command, ctx: Ctx): void {
   const task = program.command("task").description("Create, inspect or change tasks");
+  registerImport(task, ctx);
   task
     .command("add <title>")
     .description("Create a task by hand (DRAFT until approved, unless --approve)")
@@ -118,6 +119,36 @@ export function register(program: Command, ctx: Ctx): void {
       try {
         const t = await sess.call<Task>("task.requeue", { id: taskIdArg(id) });
         ctx.print(`${t.id} ${t.state}`);
+      } finally {
+        sess.close();
+      }
+    });
+}
+
+/** GitHub issue intake: each labeled issue becomes exactly one DRAFT task, even across restarts. */
+export function registerImport(task: Command, ctx: Ctx): void {
+  task
+    .command("import-issues")
+    .description("Create one DRAFT task per open GitHub issue with a label")
+    .option("--label <label>", "issue label", "harness")
+    .requiredOption("--role <role>", "role for the new tasks")
+    .action(async (o: { label: string; role: string }) => {
+      const { labeledIssues, issueMarker, issueTaskBody } = await import("@harness/github");
+      const { listTaskFiles } = await import("@harness/config");
+      const { prDeps } = await import("./pr.js");
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const root = (await sess.call<{ project: { root: string } }>("status")).project.root;
+        const issues = await labeledIssues(prDeps.run, root, o.label);
+        const bodies = listTaskFiles(root).map((t) => t.body);
+        let created = 0;
+        for (const i of issues) {
+          if (bodies.some((b) => b.includes(issueMarker(i)))) continue;
+          const t = await sess.call<Task>("task.add", { title: `#${i.number} ${i.title}`, role: o.role, body: issueTaskBody(i) });
+          ctx.print(`${t.id} DRAFT from ${i.url}`);
+          created++;
+        }
+        ctx.print(`${created} new draft task(s) from ${issues.length} issue(s) labeled "${o.label}"`);
       } finally {
         sess.close();
       }
