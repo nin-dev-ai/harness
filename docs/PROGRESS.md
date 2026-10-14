@@ -4,7 +4,7 @@ Definition of done per milestone: `pnpm typecheck && pnpm lint && pnpm test` gre
 
 - [x] **M0 Scaffold** — pnpm monorepo, strict TS, ESLint with layering rules (`layers.js`), Vitest, `pnpm check`, AGENTS.md, docs/, stub packages. Layering test: `tests/layering.test.ts`.
 - [x] **M1 Core and fake adapter** — Zod schemas (config, task, run, worker, window, events, rpc), ids, FakeClock, task/worker state machines with exhaustive transition tests, `AgentAdapter`, process-group runner, scripted fake agent, shared adapter contract suite (cancel leaves no orphans).
-- [ ] M2 Storage and config
+- [x] **M2 Storage and config** — SQLite (WAL) with numbered migrations; `Store.append` validates, logs and projects every event in one transaction; projections rebuild from the log (tested); repos for tasks, runs, workers, windows, events, approvals. Config loader with line-numbered errors, cross-field rules (missing routes, same-vendor fallbacks, same-route warnings), comment-preserving edits, check detection (npm/pnpm/yarn/bun, Python, Go, Rust, Make), task files and cycle detection.
 - [ ] M3 Workspace
 - [ ] M4 Verify
 - [ ] M5 Vendor spikes

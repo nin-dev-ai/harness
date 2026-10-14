@@ -23,18 +23,31 @@ export const EVENT_PAYLOADS = {
   "plan.invalid": z.object({ errors: z.array(s), attempt: z.number() }),
   "task.approved": z.object({ by: s.default("user") }),
   // Tasks
-  "task.created": z.object({ title: s, role: s, size: z.enum(["S", "M", "L"]), dependsOn: z.array(s), state: TaskStateSchema, specPath: s }),
+  "task.created": z.object({ title: s, role: s, size: z.enum(["S", "M", "L"]), dependsOn: z.array(s), state: TaskStateSchema, specPath: s, attemptsMax: z.number().int().min(1).default(3) }),
   "task.state_changed": z.object({ from: TaskStateSchema, to: TaskStateSchema, reason: opt(s) }),
   "task.blocked": z.object({ reason: BlockedReasonSchema, detail: opt(s) }),
   "task.needs_human": z.object({ reason: s, evidence: z.record(s, z.unknown()).default({}) }),
-  "task.updated": z.object({ fields: z.record(s, z.unknown()) }),
+  "task.updated": z.object({
+    fields: z
+      .object({
+        title: opt(s),
+        role: opt(s),
+        size: opt(z.enum(["S", "M", "L"])),
+        dependsOn: opt(z.array(s)),
+        attempts: opt(z.number().int().min(0)),
+        attemptsMax: opt(z.number().int().min(1)),
+        branch: opt(s.nullable()),
+        worktree: opt(s.nullable()),
+      })
+      .strict(),
+  }),
   // Dispatch
   "dispatch.considered": z.object({ dispatched: z.boolean(), reason: opt(BlockedReasonSchema), route: opt(s), predictedCost: opt(z.number().nullable()) }),
   "worker.assigned": z.object({ role: s }),
   "worker.released": z.object({ role: s }),
-  "worker.state_changed": z.object({ from: WorkerStateSchema, to: WorkerStateSchema, reason: opt(s) }),
+  "worker.state_changed": z.object({ role: s, from: WorkerStateSchema.nullable(), to: WorkerStateSchema, currentRun: opt(s.nullable()), reason: opt(s.nullable()) }),
   // Runs
-  "run.started": z.object({ route: s, vendor: s, model: opt(s.nullable()), kind: RunKindSchema, pid: opt(z.number()), sessionId: opt(s), resumeOf: opt(s) }),
+  "run.started": z.object({ route: s, vendor: s, model: opt(s.nullable()), kind: RunKindSchema, artifactDir: s, pid: opt(z.number()), sessionId: opt(s), resumeOf: opt(s) }),
   "run.event": z.object({ event: AgentEventSchema }),
   "run.checkpointed": z.object({ commit: s.nullable(), reason: s }),
   "run.resumed": z.object({ sessionId: opt(s), fresh: z.boolean() }),
@@ -43,7 +56,7 @@ export const EVENT_PAYLOADS = {
   "run.crashed": z.object({ pid: opt(z.number().nullable()), detail: s }),
   // Verify
   "check.started": z.object({ checkId: s }),
-  "check.finished": z.object({ checkId: s, ok: z.boolean(), exitCode: z.number().nullable(), durationMs: z.number(), signature: opt(s.nullable()) }),
+  "check.finished": z.object({ checkId: s, ok: z.boolean(), exitCode: z.number().nullable(), durationMs: z.number(), signature: opt(s.nullable()), outputTail: opt(s), required: opt(z.boolean()) }),
   "gate.passed": z.object({ checks: z.array(s) }),
   "gate.failed": z.object({ failed: z.array(s), signatures: z.array(s) }),
   "repair.requested": z.object({ attempt: z.number(), cause: z.enum(["gate", "review", "human"]) }),
@@ -66,9 +79,10 @@ export const EVENT_PAYLOADS = {
   "route.resumed": z.object({ route: s }),
   "probe.sent": z.object({ route: s, ok: z.boolean(), nextProbeAt: opt(s.nullable()) }),
   "budget.cap_reached": z.object({ route: s, kind: windowKind, capPct: z.number() }),
+  "cost.sampled": z.object({ route: s, role: s, size: z.enum(["S", "M", "L"]), windowKind: z.enum(["5h", "7d", "budget"]), deltaPct: z.number() }),
   // Policy
   "policy.denied": z.object({ rule: s, detail: s, files: opt(z.array(s)) }),
-  "approval.requested": z.object({ approvalId: s, category: s, context: s }),
+  "approval.requested": z.object({ approvalId: s, category: s, context: s, action: opt(s) }),
   "approval.granted": z.object({ approvalId: s }),
   "approval.denied": z.object({ approvalId: s, comment: opt(s) }),
   // System
