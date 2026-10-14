@@ -9,7 +9,7 @@ Definition of done per milestone: `pnpm typecheck && pnpm lint && pnpm test` gre
 - [x] **M4 Verify** — argv checks runner (no shell, process-group timeout, env limited to `env_pass` + PATH/HOME, last 200 lines), failure signatures stable across paths/line numbers/timings, gate outcome, setup runner, readiness report with red-baseline block.
 - [x] **M5 Vendor spikes** — recorded help, auth status, headless success, resume and missing-session behavior for Claude Code 2.1.285, Codex 0.162.1 and Cursor agent 2026.10.14; usage data located (Claude stream, Codex session log, Cursor none). See docs/VENDORS.md.
 - [x] **M6 Real adapters** — Claude, Codex and Cursor adapters on a shared `CliAdapter` base; parsers tested against recorded fixtures; each passes the shared contract suite via a fixture replayer; vendor usage from Claude `rate_limit_event` and the Codex session log; live smoke tests (`pnpm smoke:claude|codex|cursor`, off by default) passed for all three on 2026-10-14.
-- [ ] M7 Daemon core
+- [x] **M7 Daemon core** — Unix-socket JSON-RPC with event subscriptions, `DaemonClient`, pid-file lock, `ProjectRuntime` (config, adapters per route, workers, validated transitions mirrored to task files), run supervisor (artifacts, event streaming, stop reasons), recovery (kill orphans, checkpoint, requeue, never redo a recorded merge). Crash test: no duplicate commit across restarts.
 - [ ] M8 Outer loop
 - [ ] M9 Quota and burst
 - [ ] M10 Policy
