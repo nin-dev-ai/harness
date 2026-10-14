@@ -72,7 +72,11 @@ export function createScenario(o: ScenarioOptions = {}): Scenario {
   const adapters = new Map<string, FakeAdapter>();
   const scriptFor = (req: RunRequest): FakeScript => {
     const task = /^R-(T-\d+)-\d+$/.exec(req.runId)?.[1] ?? "";
-    const s = scripts.get(task) ?? { steps: [{ kind: "result", ok: true, summary: "done" }] };
+    const s =
+      scripts.get(task) ??
+      (req.mode === "readonly"
+        ? { steps: [{ kind: "result" as const, ok: true, summary: "reviewed", structured: { summary: "ok", findings: [] } }] }
+        : { steps: [{ kind: "result" as const, ok: true, summary: "done" }] });
     return typeof s === "function" ? s(req) : s;
   };
   const adapterFactory = (route: string) => {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { runId as makeRunId, type AgentEvent, type ErrorKind, type RunKind, type RunState } from "@harness/core";
 import { DEFAULT_ENV_ALLOW, filterEnv } from "@harness/adapters";
+import { maskSecrets, secretValues } from "@harness/policy";
 import type { ProjectRuntime } from "./project.js";
 
 export interface StartRunInput {
@@ -52,7 +53,20 @@ export function runEnv(project: ProjectRuntime, route: string, parent: NodeJS.Pr
 export class Supervisor {
   private live = new Map<string, { project: ProjectRuntime; route: string; stop?: StopReason }>();
 
-  constructor(private parentEnv: NodeJS.ProcessEnv = process.env) {}
+  private secrets: string[];
+
+  constructor(private parentEnv: NodeJS.ProcessEnv = process.env) {
+    this.secrets = secretValues(parentEnv);
+  }
+
+  /** Agent output is masked before it is stored or shown. */
+  private mask(ev: AgentEvent): AgentEvent {
+    if (ev.type === "message") return { ...ev, text: maskSecrets(ev.text, this.secrets), ...(ev.raw !== undefined ? { raw: JSON.parse(maskSecrets(JSON.stringify(ev.raw), this.secrets)) } : {}) };
+    if (ev.type === "tool_call") return { ...ev, summary: maskSecrets(ev.summary, this.secrets) };
+    if (ev.type === "result") return { ...ev, summary: maskSecrets(ev.summary, this.secrets) };
+    if (ev.type === "error") return { ...ev, message: maskSecrets(ev.message, this.secrets) };
+    return ev;
+  }
 
   start(project: ProjectRuntime, input: StartRunInput): { runId: string; done: Promise<RunOutcome> } {
     const n = project.store.runs.nextNumber(project.id, input.taskId);
@@ -89,7 +103,8 @@ export class Supervisor {
         ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
         ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
       });
-      for await (const ev of stream) {
+      for await (const raw of stream) {
+        const ev = this.mask(raw);
         log.write(JSON.stringify(ev) + "\n");
         this.observe(out, files, ev);
         project.emit("run.event", { event: ev }, env);

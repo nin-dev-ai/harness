@@ -220,6 +220,8 @@ export class EnginePlugin implements DaemonPlugin {
       "review.accept": async (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
         const { id } = parse(P.extend({ id: z.string() }), params);
+        // A human accepting the review is the approval for this merge.
+        for (const a of p.store.windows.approvals(p.id, "PENDING")) if (a.taskId === id) this.decide(p, a.id, true);
         await e.merge(id);
         return p.task(id);
       },
@@ -253,6 +255,25 @@ export class EnginePlugin implements DaemonPlugin {
         e.kick();
         return p.config.limits.routes[a.route];
       },
+      "approval.list": (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ state: z.enum(["PENDING", "GRANTED", "DENIED"]).optional() }), params);
+        return p.store.windows.approvals(p.id, a.state);
+      },
+      "approval.grant": (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ id: z.string() }), params);
+        this.decide(p, a.id, true);
+        e.kick();
+        return p.store.windows.approvals(p.id).find((x) => x.id === a.id);
+      },
+      "approval.deny": (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ id: z.string(), comment: z.string().optional() }), params);
+        this.decide(p, a.id, false, a.comment);
+        e.kick();
+        return p.store.windows.approvals(p.id).find((x) => x.id === a.id);
+      },
       "events.list": (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ afterSeq: z.number().optional(), limit: z.number().optional(), taskId: z.string().optional() }), params);
@@ -272,12 +293,29 @@ export class EnginePlugin implements DaemonPlugin {
     if (cycle) throw new HarnessError("VALIDATION", `dependency cycle: ${cycle.join(" -> ")}`);
   }
 
-  /** DRAFT → QUEUED, rejecting cycles and unknown dependencies. */
+  decide(p: ProjectRuntime, id: string, grant: boolean, comment?: string): void {
+    const a = p.store.windows.approvals(p.id).find((x) => x.id === id);
+    if (!a) throw new HarnessError("NOT_FOUND", `unknown approval ${id}`);
+    if (a.state !== "PENDING") throw new HarnessError("CONFLICT", `${id} is already ${a.state}`);
+    if (grant) p.emit("approval.granted", { approvalId: id }, { taskId: a.taskId });
+    else p.emit("approval.denied", { approvalId: id, ...(comment ? { comment } : {}) }, { taskId: a.taskId });
+  }
+
+  /**
+   * `harness approve <id>`: DRAFT → QUEUED (rejecting cycles and unknown
+   * dependencies), and grants that task's pending approvals.
+   */
   approve(p: ProjectRuntime, ids: string[]): string[] {
     this.assertDag(p, new Map());
     const out: string[] = [];
     for (const id of ids) {
       const t = p.task(id);
+      for (const a of p.store.windows.approvals(p.id, "PENDING")) {
+        if (a.taskId === id) {
+          this.decide(p, a.id, true);
+          if (!out.includes(id)) out.push(id);
+        }
+      }
       if (t.state !== "DRAFT") continue;
       p.emit("task.approved", { by: "user" }, { taskId: id });
       p.transition(id, "QUEUED", "approved");
