@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AgentEventSchema, type AgentEvent } from "@harness/core";
-import { filterEnv, pidAlive, processGroupAlive } from "./process.js";
+import { collect, filterEnv, pidAlive, processGroupAlive } from "./process.js";
 import type { AgentAdapter, RunRequest } from "./types.js";
 
 /** Scenarios every adapter must handle. Real adapters replay recorded fixtures for these. */
@@ -22,11 +22,7 @@ export interface ContractSubject {
   prepare(scenario: ContractScenario): AgentAdapter | undefined;
 }
 
-export async function collect(it: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
-  const out: AgentEvent[] = [];
-  for await (const e of it) out.push(e);
-  return out;
-}
+export { collect };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

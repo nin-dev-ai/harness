@@ -45,3 +45,9 @@ The PRD mentions "an ordered fallback list of routes" but its YAML example has n
 - **Cursor binary** is `cursor-agent` on this machine. The adapter tries `agent`, then `cursor-agent`.
 - **Cursor resume of an unknown id** silently starts a fresh chat (exit 0), so `session_expired` can't be detected for Cursor. Resumed runs still get the checkpoint summary in the prompt, so a fresh chat has enough context.
 - **Read-only Cursor** uses `--mode plan` rather than just leaving out `--force`.
+
+## 2026-10-14 · `started` waits for the session id
+Codex can print output before `thread.started`. The process runner holds events until a line gives a session id (or 20 lines pass, or the process exits), then emits `started` with the session id followed by the held events.
+
+## 2026-10-14 · One adapter instance per route
+`createAdapter(routeName, route)` builds an adapter per route, so `usage()` returns the windows that route's account last reported.
