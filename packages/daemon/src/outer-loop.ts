@@ -188,29 +188,37 @@ export class ProjectEngine {
         continue;
       }
       const role = cfg.roles[item.role]!;
-      const route = role.route;
-      const rs = this.p.store.windows.routeState(this.p.id, route);
-      if (rs.pausedUntil && rs.pausedUntil > now) {
-        this.block(item.task, "paused", `route ${route} paused until ${rs.pausedUntil}`);
-        continue;
-      }
-      if (rs.pausedUntil === null && rs.pauseSource === "backoff") {
-        this.block(item.task, "paused", `route ${route} paused, resume time unknown (probing)`);
-        continue;
-      }
-      if (item.kind === "implement") {
-        const mine = this.filesHint(item.task.id);
-        const clash = [...this.live.values()].find((l) => l.taskId !== item.task.id && filesOverlap(mine, this.filesHint(l.taskId)));
-        if (clash) {
-          this.block(item.task, "file_overlap", `files_hint overlaps ${clash.taskId}`);
+      // The role's route is law; fallback routes only with `fallback: auto`.
+      const candidates = [role.route, ...(role.fallback === "auto" ? role.fallback_routes : [])];
+      let chosen: string | undefined;
+      let firstBlock: { reason: NonNullable<Task["blockedReason"]>; detail?: string } | undefined;
+      for (const route of candidates) {
+        const rs = this.p.store.windows.routeState(this.p.id, route);
+        if (rs.pausedUntil && rs.pausedUntil > now) {
+          firstBlock ??= { reason: "paused", detail: `route ${route} paused until ${rs.pausedUntil}${rs.pauseSource === "backoff" ? " (probing)" : ""}` };
           continue;
         }
+        if (item.kind === "implement") {
+          const mine = this.filesHint(item.task.id);
+          const clash = [...this.live.values()].find((l) => l.taskId !== item.task.id && filesOverlap(mine, this.filesHint(l.taskId)));
+          if (clash) {
+            firstBlock ??= { reason: "file_overlap", detail: `files_hint overlaps ${clash.taskId}` };
+            break;
+          }
+        }
+        const decision = await this.checkGuards(item, route);
+        if (!decision.ok) {
+          firstBlock ??= { reason: decision.reason, ...(decision.detail ? { detail: decision.detail } : {}) };
+          continue;
+        }
+        chosen = route;
+        break;
       }
-      const decision = await this.checkGuards(item, route);
-      if (!decision.ok) {
-        this.block(item.task, decision.reason, decision.detail);
+      if (!chosen) {
+        if (firstBlock) this.block(item.task, firstBlock.reason, firstBlock.detail);
         continue;
       }
+      const route = chosen;
       this.p.emit("dispatch.considered", { dispatched: true, route }, { taskId: item.task.id });
       this.lastReason.delete(item.task.id);
       await this.dispatch(item, worker.id, route);
@@ -335,12 +343,12 @@ export class ProjectEngine {
     if (item.kind === "repair") {
       kind = "repair";
       prompt = await this.repairPrompt(task, ws.path);
-      resumeSessionId = this.lastSession(task.id);
+      resumeSessionId = this.lastSession(task.id, route);
       if (!resumeSessionId) prompt = `${this.taskPrompt(task)}\n${prompt}`;
     } else if (last) {
       // Continue earlier work: same session if we can, else a fresh one with the checkpoint summary.
       kind = "resume";
-      const session = this.lastSession(task.id);
+      const session = this.lastSession(task.id, route);
       const expired = last.errorKind === "session_expired";
       if (session && !expired) {
         resumeSessionId = session;
@@ -366,11 +374,12 @@ export class ProjectEngine {
     });
   }
 
-  private lastSession(taskId: string): string | undefined {
+  /** Vendor session to resume: only from the latest implementer run, and only on the same route. */
+  private lastSession(taskId: string, route: string): string | undefined {
     const runs = this.implementerRuns(taskId);
     for (let i = runs.length - 1; i >= 0; i--) {
       const r = runs[i]!;
-      if (r.errorKind === "session_expired") return undefined;
+      if (r.errorKind === "session_expired" || r.route !== route) return undefined;
       if (r.vendorSessionId) return r.vendorSessionId;
     }
     return undefined;
@@ -460,8 +469,14 @@ export class ProjectEngine {
   // ── after a run ──────────────────────────────────────────────────────
 
   private async afterRun(taskId: string, workerId: string, route: string, kind: RunKind, outcome: RunOutcome, reviewTreeHash?: string): Promise<void> {
-    this.live.delete(taskId);
     const task = this.p.task(taskId);
+    // A limit pauses the route before this run stops counting as in flight,
+    // so nothing else is dispatched into the gap.
+    if (outcome.rateLimit && task.state !== "CANCELLED") {
+      for (const g of this.guards) await g.onLimit?.(this.p, route, outcome);
+      if (!this.guards.some((g) => g.onLimit)) this.defaultPauseRoute(route, outcome);
+    }
+    this.live.delete(taskId);
     for (const g of this.guards) await g.onRunFinished?.(this.p, task, route, kind, outcome);
     const releaseWorker = (reason: string | null = null) => {
       this.holding.delete(workerId);
@@ -486,8 +501,6 @@ export class ProjectEngine {
     }
 
     if (outcome.rateLimit) {
-      for (const g of this.guards) await g.onLimit?.(this.p, route, outcome);
-      if (!this.guards.some((g) => g.onLimit)) this.defaultPauseRoute(route, outcome);
       this.p.transition(taskId, "PAUSED", `limit:${route}`);
       const rs = this.p.store.windows.routeState(this.p.id, route);
       this.holding.delete(workerId);

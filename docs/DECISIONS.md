@@ -61,3 +61,10 @@ Codex can print output before `thread.started`. The process runner holds events 
 - **A failed re-verification after rebase** goes to `NEEDS_HUMAN` (not an automatic repair), with the failing output as evidence.
 - **`review --reject -m`** is stored as a denied approval carrying the comment, followed by `repair.requested {cause: human}`.
 - **Attended** means a client command with `attended: true` within the last 10 minutes (used by the unattended policy in M10).
+
+## 2026-10-14 · Quota details
+- **Unknown usage with no manual budget:** at most 8 runs per route per rolling 5 hours (`UNKNOWN_RUNS_PER_5H`).
+- **Burst off (`b`)** skips the would-not-fit rule but still stops at caps, exhausted windows and budgets.
+- **Cost samples** are recorded only from `vendor` readings within one reset period, and divided by the most runs that overlapped on the route.
+- **`max_tasks_per_burst`** counts new (initial) runs on a route since the scheduler started or the route last resumed.
+- **Quiet hours** use the daemon's local time.

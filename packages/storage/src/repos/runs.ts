@@ -53,6 +53,15 @@ export class RunsRepo {
     return runs.at(-1);
   }
 
+  /** Runs started on a route since a time, and their total minutes (ended or running until `now`). */
+  usageSince(projectId: string, route: string, sinceIso: string, nowIso: string): { runs: number; minutes: number } {
+    const rows = this.db
+      .prepare("SELECT started_at, ended_at FROM runs WHERE project_id = ? AND route = ? AND started_at >= ?")
+      .all(projectId, route, sinceIso) as { started_at: string; ended_at: string | null }[];
+    const minutes = rows.reduce((m, r) => m + (Date.parse(r.ended_at ?? nowIso) - Date.parse(r.started_at)) / 60_000, 0);
+    return { runs: rows.length, minutes: Math.round(minutes * 10) / 10 };
+  }
+
   checkResults(runId: string): CheckResultRow[] {
     return (this.db.prepare("SELECT * FROM check_results WHERE run_id = ? ORDER BY id").all(runId) as Record<string, unknown>[]).map((r) => ({
       runId: r.run_id as string, checkId: r.check_id as string, ok: r.ok === 1, exitCode: r.exit_code as number | null,
