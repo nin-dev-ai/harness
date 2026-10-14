@@ -33,3 +33,6 @@ The process runner emits `started` on the first output line (so it can carry the
 
 ## 2026-10-14 · Fallback routes
 The PRD mentions "an ordered fallback list of routes" but its YAML example has no key for it. Added `roles.<r>.fallback_routes: [...]`. The loader rejects a list containing two routes of the same vendor.
+
+## 2026-10-14 · Check environment
+"A clean environment limited to `env_pass`" would leave checks without `PATH`, so nothing could start. Checks get `PATH, HOME, TMPDIR, LANG, SHELL, USER` plus `env_pass`, plus `CI=1`, `NO_COLOR=1`, `FORCE_COLOR=0`. No credentials or other variables pass through.
