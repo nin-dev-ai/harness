@@ -30,6 +30,8 @@
     "@harness/daemon": "workspace:*",
     "@harness/tui": "workspace:*",
     "commander": "^12.1.0",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "yaml": "^2.6.0",
+    "tsx": "^4.19.0"
   }
 }

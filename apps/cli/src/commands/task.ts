@@ -1,2 +1,132 @@
-// @harness/cli — implemented in M11.
-export {};
+import fs from "node:fs";
+import path from "node:path";
+import type { Command } from "commander";
+import type { Task } from "@harness/core";
+import { duration, stateColor, table } from "../format.js";
+import { CliExit, EXIT } from "../io.js";
+import { collect, taskIdArg, type Ctx } from "../ctx.js";
+import { openProject } from "./_client.js";
+
+export function register(program: Command, ctx: Ctx): void {
+  const task = program.command("task").description("Create, inspect or change tasks");
+  task
+    .command("add <title>")
+    .description("Create a task by hand (DRAFT until approved, unless --approve)")
+    .option("--role <role>", "role that does the task")
+    .option("--after <ids>", "tasks that must be merged first (comma-separated, repeatable)", collect, [])
+    .option("--spec <file>", "markdown file with the description")
+    .option("--size <size>", "S | M | L", "M")
+    .option("--acceptance <text>", "acceptance criterion (repeatable)", (v: string, p: string[] = []) => [...p, v], [])
+    .option("--files <globs>", "files the task is expected to touch (comma-separated)", collect, [])
+    .option("--approve", "approve immediately (QUEUED)")
+    .action(async (title: string, o: { role?: string; after: string[]; spec?: string; size: string; acceptance: string[]; files: string[]; approve?: boolean }) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const status = await sess.call<{ tasks: Task[] }>("status");
+        void status;
+        const role = o.role ?? (await defaultRole(sess));
+        const body = o.spec ? fs.readFileSync(path.resolve(ctx.io.cwd, o.spec), "utf8") : "";
+        const t = await sess.call<Task>("task.add", {
+          title, role, size: o.size.toUpperCase(), dependsOn: o.after.map(taskIdArg), body, acceptance: o.acceptance, filesHint: o.files, approve: Boolean(o.approve),
+        });
+        if (ctx.json()) ctx.printJson(t);
+        else ctx.print(`${t.id} ${t.state} ${t.role}: ${t.title}${t.state === "DRAFT" ? `\n  approve with: harness approve ${t.id}` : ""}`);
+      } finally {
+        sess.close();
+      }
+    });
+  task
+    .command("list")
+    .description("List tasks")
+    .option("--state <states>", "filter by state (comma-separated)", collect, [])
+    .action(async (o: { state: string[] }) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        let tasks = await sess.call<Task[]>("task.list");
+        if (o.state.length) tasks = tasks.filter((t) => o.state.map((x) => x.toUpperCase()).includes(t.state));
+        if (ctx.json()) return ctx.printJson(tasks);
+        const s = ctx.s();
+        ctx.print(tasks.length ? table(tasks.map((t) => [t.id, stateColor(t.state, s), t.role, t.size, t.title, t.dependsOn.length ? `after ${t.dependsOn.join(",")}` : "", t.blockedReason && t.state === "QUEUED" ? `(${t.blockedReason})` : ""]), ["ID", "STATE", "ROLE", "SIZE", "TITLE", "DEPS", ""]) : "(no tasks)");
+      } finally {
+        sess.close();
+      }
+    });
+  task
+    .command("show <id>")
+    .description("Show a task with its runs, checks, findings and history")
+    .action(async (id: string) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const r = await sess.call<{ task: Task; spec: { body: string; front: { acceptance: string[] } } | null; runs: { id: string; kind: string; state: string; route: string; startedAt: string; endedAt: string | null; checks: { checkId: string; ok: boolean }[]; findings: { severity: string; message: string }[] }[]; events: { ts: string; type: string; payload: unknown }[] }>("task.show", { id: taskIdArg(id) });
+        if (ctx.json()) return ctx.printJson(r);
+        const s = ctx.s();
+        const t = r.task;
+        ctx.print(`${s.bold(`${t.id} ${t.title}`)}\n  state: ${stateColor(t.state, s)}  role: ${t.role}  size: ${t.size}  attempts: ${t.attempts}/${t.attemptsMax}`);
+        if (t.branch) ctx.print(`  branch: ${t.branch}${t.worktree ? `  worktree: ${t.worktree}` : ""}`);
+        if (t.dependsOn.length) ctx.print(`  depends on: ${t.dependsOn.join(", ")}`);
+        if (r.spec?.front.acceptance.length) ctx.print(`  acceptance:\n${r.spec.front.acceptance.map((a) => `    - ${a}`).join("\n")}`);
+        if (r.spec?.body) ctx.print(`\n${r.spec.body}`);
+        if (r.runs.length) {
+          ctx.print(`\n${s.bold("Runs")}`);
+          for (const run of r.runs) {
+            const dur = run.endedAt ? duration(Date.parse(run.endedAt) - Date.parse(run.startedAt)) : "running";
+            ctx.print(`  ${run.id} ${run.kind} ${run.route} ${stateColor(run.state, s)} ${dur}`);
+            for (const c of run.checks) ctx.print(`    ${c.ok ? "✓" : "✗"} ${c.checkId}`);
+            for (const f of run.findings) ctx.print(`    [${f.severity}] ${f.message}`);
+          }
+        }
+        ctx.print(`\n${s.bold("History")}`);
+        for (const e of r.events.slice(-25)) ctx.print(`  ${e.ts.slice(11, 19)} ${e.type} ${s.dim(JSON.stringify(e.payload).slice(0, 100))}`);
+      } finally {
+        sess.close();
+      }
+    });
+  task
+    .command("edit <id>")
+    .description("Change a task's title, role, size or dependencies")
+    .option("--title <title>")
+    .option("--role <role>")
+    .option("--size <size>")
+    .option("--after <ids>", "replace dependencies (comma-separated)", collect)
+    .action(async (id: string, o: { title?: string; role?: string; size?: string; after?: string[] }) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const t = await sess.call<Task>("task.edit", { id: taskIdArg(id), ...(o.title ? { title: o.title } : {}), ...(o.role ? { role: o.role } : {}), ...(o.size ? { size: o.size.toUpperCase() } : {}), ...(o.after ? { dependsOn: o.after.map(taskIdArg) } : {}) });
+        if (ctx.json()) ctx.printJson(t);
+        else ctx.print(`${t.id} updated`);
+      } finally {
+        sess.close();
+      }
+    });
+  task
+    .command("cancel <id>")
+    .description("Cancel a task (stops its run)")
+    .action(async (id: string) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        await sess.call("task.cancel", { id: taskIdArg(id) });
+        ctx.print(`${taskIdArg(id)} cancelled`);
+      } finally {
+        sess.close();
+      }
+    });
+  task
+    .command("requeue <id>")
+    .description("Put a NEEDS_HUMAN, STALE or TAKEN_OVER task back in the queue")
+    .action(async (id: string) => {
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const t = await sess.call<Task>("task.requeue", { id: taskIdArg(id) });
+        ctx.print(`${t.id} ${t.state}`);
+      } finally {
+        sess.close();
+      }
+    });
+}
+
+async function defaultRole(sess: { call<T>(m: string, p?: Record<string, unknown>): Promise<T> }): Promise<string> {
+  const snap = await sess.call<{ workers: { role: string }[] }>("status");
+  const roles = [...new Set(snap.workers.map((w) => w.role))].filter((r) => r !== "reviewer" && r !== "planner");
+  if (roles.length === 1) return roles[0]!;
+  throw new CliExit(EXIT.usage, `--role is required (one of: ${roles.join(", ")})`);
+}
