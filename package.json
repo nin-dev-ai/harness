@@ -16,7 +16,8 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "smoke:claude": "HARNESS_SMOKE=claude vitest run tests/smoke",
     "smoke:codex": "HARNESS_SMOKE=codex vitest run tests/smoke",
-    "smoke:cursor": "HARNESS_SMOKE=cursor vitest run tests/smoke"
+    "smoke:cursor": "HARNESS_SMOKE=cursor vitest run tests/smoke",
+    "harness": "tsx --conditions=source apps/cli/src/main.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

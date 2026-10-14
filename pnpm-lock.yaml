@@ -110,6 +110,12 @@ importers:
       commander:
         specifier: ^12.1.0
         version: 12.1.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.15
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.1
       zod:
         specifier: ^3.24.0
         version: 3.25.76
