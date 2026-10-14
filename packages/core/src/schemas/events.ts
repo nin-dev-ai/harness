@@ -58,7 +58,7 @@ export const EVENT_PAYLOADS = {
   "check.started": z.object({ checkId: s }),
   "check.finished": z.object({ checkId: s, ok: z.boolean(), exitCode: z.number().nullable(), durationMs: z.number(), signature: opt(s.nullable()), outputTail: opt(s), required: opt(z.boolean()) }),
   "gate.passed": z.object({ checks: z.array(s) }),
-  "gate.failed": z.object({ failed: z.array(s), signatures: z.array(s) }),
+  "gate.failed": z.object({ failed: z.array(s), signatures: z.array(s), treeHash: opt(s) }),
   "repair.requested": z.object({ attempt: z.number(), cause: z.enum(["gate", "review", "human"]) }),
   "stall.detected": z.object({ reason: z.enum(["same_signature", "unchanged_diff", "max_attempts"]), detail: opt(s) }),
   // Review
@@ -85,6 +85,8 @@ export const EVENT_PAYLOADS = {
   "approval.requested": z.object({ approvalId: s, category: s, context: s, action: opt(s) }),
   "approval.granted": z.object({ approvalId: s }),
   "approval.denied": z.object({ approvalId: s, comment: opt(s) }),
+  // Scheduler
+  "scheduler.changed": z.object({ running: z.boolean(), burst: opt(z.boolean()), until: opt(s.nullable()), reason: opt(s) }),
   // System
   "daemon.started": z.object({ pid: z.number(), version: s }),
   "daemon.recovered": z.object({ requeued: z.array(s), crashedRuns: z.array(s) }),

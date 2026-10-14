@@ -25,6 +25,8 @@ export interface DaemonOptions {
 
 /** Extension point: the engine (scheduler + outer loop) registers its RPC methods and lifecycle. */
 export interface DaemonPlugin {
+  /** Called once when the plugin is added. */
+  attach?(d: Daemon): void;
   handlers(d: Daemon): Record<string, RpcHandler>;
   onProjectOpen?(p: ProjectRuntime): void | Promise<void>;
   stop?(): Promise<void>;
@@ -58,6 +60,7 @@ export class Daemon {
 
   use(plugin: DaemonPlugin): this {
     this.plugins.push(plugin);
+    plugin.attach?.(this);
     return this;
   }
 
