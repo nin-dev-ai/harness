@@ -5,7 +5,8 @@ import { killGroup, processGroupAlive } from "@harness/adapters";
 import { checkpoint } from "@harness/workspace";
 import type { ProjectRuntime } from "./project.js";
 
-const REQUEUE_FROM: readonly TaskState[] = ["RUNNING", "GATING", "REVIEWING", "REPAIRING"];
+/** Implementer work in flight is resumed; REVIEWING and REPAIRING keep their state and the scheduler redoes that step. */
+const REQUEUE_FROM: readonly TaskState[] = ["RUNNING", "GATING"];
 
 export interface RecoveryReport {
   crashedRuns: string[];

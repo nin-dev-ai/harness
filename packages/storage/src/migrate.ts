@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Database } from "better-sqlite3";
 
-export const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
+/** SQL migrations directory; a bundled build points `__HARNESS_ASSETS__` at its copy. */
+export const MIGRATIONS_DIR = (globalThis as { __HARNESS_ASSETS__?: string }).__HARNESS_ASSETS__
+  ? path.join((globalThis as { __HARNESS_ASSETS__?: string }).__HARNESS_ASSETS__!, "migrations")
+  : path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
 
 /** Apply numbered SQL migrations in order, each once, each in a transaction. Returns applied names. */
 export function migrate(db: Database, dir = MIGRATIONS_DIR): string[] {

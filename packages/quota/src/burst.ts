@@ -39,6 +39,35 @@ export function usableHeadroom(i: HeadroomInput): Headroom {
 
 export type FitDecision = { ok: true } | { ok: false; reason: "window_exhausted" | "would_not_fit"; detail: string };
 
+/** A cold 7d cost estimate, from the 5h one: a 5h window is a fraction of the weekly allowance. */
+export const WEEKLY_COST_RATIO = 0.2;
+
+export interface WindowFitInput {
+  headroom5h: number | null;
+  weeklyPerWindow: number | null;
+  cost5h: number;
+  cost7d: number;
+  inFlight5h: number;
+  inFlight7d: number;
+}
+
+/**
+ * Each window is compared in its own units: the 5h cost against 5h headroom,
+ * the 7d cost against this window's share of the weekly allowance.
+ * Unknown windows are skipped.
+ */
+export function fitsWindows(i: WindowFitInput): FitDecision {
+  if (i.headroom5h !== null) {
+    const f = fits(i.cost5h, i.headroom5h, i.inFlight5h);
+    if (!f.ok) return { ...f, detail: `5h: ${f.detail}` };
+  }
+  if (i.weeklyPerWindow !== null) {
+    const f = fits(i.cost7d, i.weeklyPerWindow, i.inFlight7d);
+    if (!f.ok) return { ...f, detail: `7d pacing: ${f.detail}` };
+  }
+  return { ok: true };
+}
+
 /**
  * The dispatch rule: never start work predicted not to finish inside the
  * remaining headroom (after work already in flight on the route).

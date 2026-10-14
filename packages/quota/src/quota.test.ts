@@ -37,6 +37,14 @@ describe("headroom", () => {
     expect(h.weeklyPerWindow).toBe(1); // (90 - 80) / 10
     expect(h.usable).toBe(1);
   });
+  it("compares each window in its own units", async () => {
+    const { fitsWindows } = await import("./burst.js");
+    // 12% of a 5h window is ~2.4% of the week: fits a 3% weekly share even though 12 > 3.
+    expect(fitsWindows({ headroom5h: 33, weeklyPerWindow: 3, cost5h: 12, cost7d: 2.4, inFlight5h: 0, inFlight7d: 0 })).toEqual({ ok: true });
+    expect(fitsWindows({ headroom5h: 33, weeklyPerWindow: 2, cost5h: 12, cost7d: 2.4, inFlight5h: 0, inFlight7d: 0 })).toMatchObject({ ok: false, reason: "would_not_fit" });
+    expect(fitsWindows({ headroom5h: 10, weeklyPerWindow: null, cost5h: 12, cost7d: 2.4, inFlight5h: 0, inFlight7d: 0 })).toMatchObject({ ok: false });
+  });
+
   it("implements would-not-fit and exhausted", () => {
     expect(fits(15, 20, 0)).toEqual({ ok: true });
     expect(fits(15, 20, 15)).toMatchObject({ ok: false, reason: "would_not_fit" });

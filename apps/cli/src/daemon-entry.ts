@@ -15,6 +15,8 @@ export async function runDaemon(env: NodeJS.ProcessEnv = process.env): Promise<v
     fs.appendFileSync(path.join(home, "logs", "daemon.log"), `${new Date().toISOString()} uncaught: ${e.stack ?? e.message}\n`);
   });
   await daemon.start();
+  // Only the first start counts as attended; a later restart by the OS does not inherit it.
+  delete process.env.HARNESS_ATTENDED_AT_START;
   fs.appendFileSync(path.join(home, "logs", "daemon.log"), `${new Date().toISOString()} started pid ${process.pid}\n`);
   await daemon.stopped();
   process.exit(0);

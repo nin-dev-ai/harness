@@ -33,6 +33,21 @@ export function register(program: Command, ctx: Ctx): void {
       ctx.print(`${role} → ${o.route}`);
     });
   roles
+    .command("suggest")
+    .description("Suggest routes per role from the recorded run history (never changes roles)")
+    .action(async () => {
+      const { openProject } = await import("./_client.js");
+      const sess = await openProject(ctx.io, ctx.dir());
+      try {
+        const r = await sess.call<{ role: string; current: string; suggested: string | null; reason: string }[]>("roles.suggest");
+        if (ctx.json()) return ctx.printJson(r);
+        for (const x of r) ctx.print(`${x.role.padEnd(12)} ${x.suggested ? `consider ${x.current} → ${x.suggested}` : `keep ${x.current}`}\n${" ".repeat(13)}${x.reason}`);
+        ctx.print("\nTo change a role: harness roles set <role> --route <route>");
+      } finally {
+        sess.close();
+      }
+    });
+  roles
     .command("propose")
     .description("Ask the planner role's agent to suggest roles and routes")
     .option("--file <prd>", "PRD or notes to base the proposal on")

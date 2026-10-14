@@ -25,7 +25,8 @@
     "@harness/planner": "workspace:*",
     "@harness/github": "workspace:*",
     "zod": "^3.24.0",
-    "picomatch": "^4.0.2"
+    "picomatch": "^4.0.2",
+    "execa": "^9.5.0"
   },
   "devDependencies": {
     "@types/picomatch": "^3.0.1"
