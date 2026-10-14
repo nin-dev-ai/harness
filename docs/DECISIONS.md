@@ -27,3 +27,9 @@ Added to the PRD's `ErrorKind` list so the outer loop can tell "resume failed, s
 
 ## 2026-10-14 · `started` event timing
 The process runner emits `started` on the first output line (so it can carry the vendor session id, which every CLI prints first), or at exit if there was no output. It always carries the pid.
+
+## 2026-10-14 · Storage: event-sourced projections
+`Store.append` is the only write path: validate → insert into `events` → apply projection, in one transaction. Projections are a pure function of the log, so `Store.rebuild()` reproduces them exactly. Extra tables beyond the PRD schema: `route_state` (a route can be paused before any window is known), `approvals` (M10), `schema_migrations`. `cost_samples` gained `project_id`. Event payloads gained the fields projections need (`task.created.attemptsMax`, `run.started.artifactDir`, `worker.state_changed.role`, `check.finished.outputTail`) plus a `cost.sampled` event for the estimator.
+
+## 2026-10-14 · Fallback routes
+The PRD mentions "an ordered fallback list of routes" but its YAML example has no key for it. Added `roles.<r>.fallback_routes: [...]`. The loader rejects a list containing two routes of the same vendor.
