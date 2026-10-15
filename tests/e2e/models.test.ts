@@ -35,4 +35,19 @@ describe("model tiers", () => {
     expect(sizeOfRequest(Array(100).fill("word").join(" "))).toBe("M");
     expect(sizeOfRequest(Array(400).fill("word").join(" "))).toBe("L");
   });
+
+  it("small tasks skip the reviewer when review_sizes leaves S out", async () => {
+    s = createScenario({ config: DEFAULT_CONFIG.replace("  max_attempts_per_task: 3", "  max_attempts_per_task: 3\n  review_sizes: [M, L]") });
+    h = await startHarness(s);
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    s.scripts.set("T-002", byMode(writes({ "src/server/b.ts": "b\n" })));
+    const small = h.project.createTask({ title: "Typo", role: "backend", size: "S", state: "QUEUED" });
+    const mid = h.project.createTask({ title: "Feature", role: "backend", size: "M", state: "QUEUED" });
+    h.engine.start();
+    await h.until(small.id, "MERGED");
+    await h.until(mid.id, "MERGED");
+    const reviews = (id: string) => h.project.store.runs.listByTask(h.project.id, id).filter((r) => r.kind === "review").length;
+    expect([reviews(small.id), reviews(mid.id)]).toEqual([0, 1]);
+  });
 });
+

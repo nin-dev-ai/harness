@@ -652,9 +652,10 @@ export class ProjectEngine {
     if (outcome.passed) {
       this.p.emit("gate.passed", { checks: results.map((r) => r.checkId) }, env);
       this.p.transition(taskId, "REVIEWING");
-      if (!this.reviewerRole()) {
+      const skip = !this.reviewerRole() ? "no reviewer role" : !this.p.config.limits.review_sizes.includes(task.size) ? `review skipped for size ${task.size}` : undefined;
+      if (skip) {
         this.p.emit("review.passed", { findings: 0 }, { taskId });
-        this.p.transition(taskId, "PR_READY", "no reviewer role");
+        this.p.transition(taskId, "PR_READY", skip);
         await this.maybeAutoMerge(taskId);
       }
       return;

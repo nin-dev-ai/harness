@@ -154,6 +154,7 @@ limits:
   max_attempts_per_task: 3
   max_task_minutes: 60
   max_parallel_workers: 3
+  review_sizes: [M, L]          # small tasks merge once checks pass; add S to review them too
 
 burst:
   enabled: true
