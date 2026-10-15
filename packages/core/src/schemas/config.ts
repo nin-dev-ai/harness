@@ -12,6 +12,8 @@ export const RouteSchema = z
     vendor: VendorSchema,
     auth: z.enum(["subscription", "api_key"]),
     model: z.string().optional(),
+    /** Model per task size (S, M, L); sizes not listed use `model`. */
+    models: z.object({ S: z.string().min(1), M: z.string().min(1), L: z.string().min(1) }).partial().strict().optional(),
   })
   .strict();
 export type Route = z.infer<typeof RouteSchema>;

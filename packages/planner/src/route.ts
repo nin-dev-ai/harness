@@ -71,3 +71,12 @@ export function routeWork(text: string, roles: RoleInfo[], inScope: (role: RoleI
   if (second !== undefined && scores[second]! > 0 && scores[best]! < 3 * scores[second]!) return { role: undefined, reason: `touches both ${best} and ${second}`, scores };
   return { role: best, reason: `matched ${why[best]!.slice(0, 4).join(", ")}`, scores };
 }
+
+/**
+ * A size for work that skips the planner, from how much was asked: a short
+ * request is S, a paragraph is M, a spec is L. It picks the model tier.
+ */
+export function sizeOfRequest(text: string): "S" | "M" | "L" {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return words <= 40 ? "S" : words <= 250 ? "M" : "L";
+}

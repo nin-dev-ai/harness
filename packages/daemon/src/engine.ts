@@ -11,6 +11,7 @@ import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { pickRole, Planner } from "./planning.js";
+import { sizeOfRequest } from "@harness/planner";
 import { BOARD_FILE, boardData, renderBoard } from "./board.js";
 import { Lead } from "./lead.js";
 import { suggestRoutes } from "./suggest.js";
@@ -319,7 +320,7 @@ export class EnginePlugin implements DaemonPlugin {
         const picked = pickRole(p, a.document);
         if (picked.sure || !p.config.roles.planner) {
           // One agent's job (or no planner to ask): start it now, no planning run.
-          const t = p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: picked.role, body: a.document });
+          const t = p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: picked.role, body: a.document, size: sizeOfRequest(a.document) });
           p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
           created = [t];
           summary = `${picked.role} takes this (${picked.reason})`;

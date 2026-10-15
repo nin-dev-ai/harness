@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { runId as makeRunId, type AgentEvent, type ErrorKind, type RunKind, type RunState } from "@harness/core";
+import { runId as makeRunId, type AgentEvent, type ErrorKind, type Route, type RunKind, type RunState, type TaskSize } from "@harness/core";
 import { DEFAULT_ENV_ALLOW, filterEnv } from "@harness/adapters";
 import { maskSecrets, secretValues } from "@harness/policy";
 import type { ProjectRuntime } from "./project.js";
@@ -17,6 +17,13 @@ export interface StartRunInput {
   allowedPaths: string[];
   timeoutMs: number;
   jsonSchema?: object;
+  /** Task size: picks the route's model tier (`models.S|M|L`) when it has one. */
+  size?: TaskSize;
+}
+
+/** The model a run uses: the route's tier for the task size, else its default model. */
+export function modelFor(route: Route | undefined, size?: TaskSize): string | undefined {
+  return (size ? route?.models?.[size] : undefined) ?? route?.model;
 }
 
 export interface RunOutcome {
@@ -78,7 +85,7 @@ export class Supervisor {
     project.emit(
       "run.started",
       {
-        route: input.route, vendor: route.vendor, model: route.model ?? null, kind: input.kind,
+        route: input.route, vendor: route.vendor, model: modelFor(route, input.size) ?? null, kind: input.kind,
         artifactDir: path.relative(project.root, dir), ...(input.resumeSessionId ? { resumeOf: input.resumeSessionId } : {}),
       },
       { taskId: input.taskId, runId, workerId: input.workerId },
@@ -99,7 +106,7 @@ export class Supervisor {
       const stream = adapter.run({
         runId, cwd: input.cwd, prompt: input.prompt, mode: input.mode, allowedPaths: input.allowedPaths,
         env: runEnv(project, input.route, this.parentEnv), timeoutMs: input.timeoutMs,
-        ...(project.config.routes[input.route]?.model ? { model: project.config.routes[input.route]!.model! } : {}),
+        ...(modelFor(project.config.routes[input.route], input.size) ? { model: modelFor(project.config.routes[input.route], input.size)! } : {}),
         ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
         ...(input.jsonSchema ? { jsonSchema: input.jsonSchema } : {}),
       });

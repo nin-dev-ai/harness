@@ -523,6 +523,8 @@ export class ProjectEngine {
       timeoutMs: this.p.config.limits.max_task_minutes * 60_000,
       ...(r.resumeSessionId ? { resumeSessionId: r.resumeSessionId } : {}),
       ...(r.jsonSchema ? { jsonSchema: r.jsonSchema } : {}),
+      // Implementers get the model tier for the task's size; reviews use the route's default.
+      ...(r.kind !== "review" ? { size: task.size } : {}),
     });
     this.live.set(task.id, { runId, taskId: task.id, workerId, route, kind: r.kind, startedAt: this.p.now() });
     this.p.emit("worker.assigned", { role: this.p.store.workers.get(this.p.id, workerId)!.role }, { taskId: task.id, workerId, runId });
