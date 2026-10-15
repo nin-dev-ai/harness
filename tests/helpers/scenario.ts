@@ -71,7 +71,7 @@ export function createScenario(o: ScenarioOptions = {}): Scenario {
   const scripts: Scenario["scripts"] = new Map();
   const adapters = new Map<string, FakeAdapter>();
   const scriptFor = (req: RunRequest): FakeScript => {
-    const task = /^R-(T-\d+|PLAN|ROLES)-\d+$/.exec(req.runId)?.[1] ?? "";
+    const task = /^R-(T-\d+|PLAN|ROLES|LEAD)-\d+$/.exec(req.runId)?.[1] ?? "";
     const s =
       scripts.get(task) ??
       (req.mode === "readonly"

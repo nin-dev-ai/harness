@@ -5,3 +5,4 @@ export * from "./validate.js";
 export * from "./plan.js";
 export * from "./roles.js";
 export * from "./route.js";
+export * from "./lead.js";

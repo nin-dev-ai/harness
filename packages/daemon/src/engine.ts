@@ -12,6 +12,7 @@ import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { pickRole, Planner } from "./planning.js";
 import { BOARD_FILE, boardData, renderBoard } from "./board.js";
+import { Lead } from "./lead.js";
 import { suggestRoutes } from "./suggest.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
@@ -32,6 +33,8 @@ const ATTENDED_WINDOW_MS = 10 * 60_000;
  */
 export class EnginePlugin implements DaemonPlugin {
   readonly engines = new Map<string, ProjectEngine>();
+  private readonly leads = new Map<string, Lead>();
+  private readonly unsubscribers: (() => void)[] = [];
   private lastAttended = 0;
   private daemon?: Daemon;
 
@@ -56,10 +59,28 @@ export class EnginePlugin implements DaemonPlugin {
     if (this.engines.has(p.id) || !this.daemon) return;
     const e = new ProjectEngine(p, this.daemon.supervisor, this.guardFactory(p, this.daemon, () => this.engines.get(p.id)?.kick()), { attended: () => this.isAttended() });
     this.engines.set(p.id, e);
+    // The lead looks at each batch of team work once it settles.
+    const lead = new Lead(p, this.daemon.supervisor, (ids) => {
+      this.approve(p, ids);
+      if (e.running) e.kick();
+      else e.start({});
+    });
+    this.leads.set(p.id, lead);
+    const settle = new Set(["MERGED", "PR_READY", "NEEDS_HUMAN", "CANCELLED"]);
+    this.unsubscribers.push(
+      p.store.subscribe((ev) => {
+        if (ev.projectId === p.id && ev.type === "task.state_changed" && settle.has(ev.payload.to)) void lead.check().catch(() => undefined);
+      }),
+    );
     e.kick();
   }
 
+  lead(projectId: string): Lead | undefined {
+    return this.leads.get(projectId);
+  }
+
   async stop(): Promise<void> {
+    for (const u of this.unsubscribers.splice(0)) u();
     for (const e of this.engines.values()) e.shutdown();
   }
 

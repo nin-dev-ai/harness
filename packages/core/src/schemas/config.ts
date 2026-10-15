@@ -58,6 +58,10 @@ export const LimitsSchema = z
     max_parallel_workers: z.number().int().min(1).default(3),
     max_tasks_per_burst: z.number().int().min(1).default(6),
     /** Input tokens a vendor session may carry before harness starts a fresh one from the board and a handoff. */
+    /** Rounds of follow-ups the lead may set for one request (the first round is the request itself). */
+    lead_rounds: z.number().int().min(1).max(5).default(2),
+    /** Follow-up jobs the lead may set per round. */
+    lead_followups: z.number().int().min(0).max(10).default(3),
     fresh_session_after_tokens: z.number().int().min(10_000).default(400_000),
     quiet_hours: quietHours.optional(),
     routes: z.record(name, RouteLimitsSchema).default({}),
