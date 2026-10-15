@@ -46,6 +46,12 @@ describe("lead (compiler) agent", () => {
     expect(prompt).toContain("T-001 [merged] `backend`");
     expect(prompt).toContain("At most 3 follow-ups");
     expect(s.adapters.get("rev")!.requests.find((r) => r.runId === "R-LEAD-2")!.prompt).toContain("this was the last round");
+    // The board's checklist covers the request and the lead's follow-ups, ticked as they merge.
+    const { boardData, renderBoard } = await import("@harness/daemon");
+    const board = renderBoard(boardData(h.project));
+    expect(board).toContain("## Checklist for the latest request (4/4 done)");
+    expect(board).toContain("- [x] T-002: error row shows");
+    expect(s.adapters.get("rev")!.requests.find((r) => r.runId === "R-LEAD-2")!.prompt).toContain("- [x] T-002: error row shows");
   });
 
   it("without a lead role nothing extra runs", async () => {

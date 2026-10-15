@@ -29,7 +29,10 @@ describe("team board (HARNESS.md)", () => {
         { id: "T-002", title: "Watchlist", role: "frontend", state: "RUNNING", dependsOn: ["T-001"], agent: "frontend-1", vendor: "codex" },
       ],
       notes: [{ taskId: "T-001", agent: "backend-1", text: "GET /api/quotes" }],
+      checklist: { request: "Live quotes", items: [{ taskId: "T-001", text: "feed returns quotes", state: "done" }, { taskId: "T-002", text: "list shows symbols", state: "working" }] },
     });
+    expect(b).toContain("## Checklist for the latest request (1/2 done)");
+    expect(b).toContain("- [x] T-001: feed returns quotes\n- [~] T-002: list shows symbols");
     expect(b).toContain("## What the person asked for\n- Live quotes with a watchlist");
     expect(b).toContain("## Working now\n- **T-002** Watchlist · `frontend` (frontend-1, codex) · running");
     expect(b).toContain("- **T-001** Quote feed · `backend` (backend-1, claude)\n  - did: Added the feed\n  - changed: `src/server/feed.ts`");

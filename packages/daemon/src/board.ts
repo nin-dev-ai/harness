@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { HarnessEvent, Task } from "@harness/core";
-import { writeFileAtomic } from "@harness/config";
+import { readTaskFile, writeFileAtomic } from "@harness/config";
 import type { ProjectRuntime } from "./project.js";
 
 /**
@@ -42,6 +42,24 @@ export interface BoardData {
   tasks: BoardTask[];
   notes: { taskId: string; agent: string; text: string }[];
   lead?: string | undefined;
+  /** Acceptance criteria of the latest request (and the lead's follow-ups for it), each with its task's progress. */
+  checklist?: { request: string; items: ChecklistItem[] } | undefined;
+}
+
+export interface ChecklistItem {
+  taskId: string;
+  text: string;
+  state: "done" | "working" | "waiting" | "stuck" | "dropped";
+}
+
+const MARK: Record<ChecklistItem["state"], string> = { done: "[x]", working: "[~]", waiting: "[ ]", stuck: "[!]", dropped: "[-]" };
+
+function itemState(taskState: string): ChecklistItem["state"] {
+  if (taskState === "MERGED") return "done";
+  if (taskState === "NEEDS_HUMAN") return "stuck";
+  if (taskState === "CANCELLED") return "dropped";
+  if (["RUNNING", "GATING", "REPAIRING", "REVIEWING", "PR_READY"].includes(taskState)) return "working";
+  return "waiting";
 }
 
 /** `NOTE:` lines an agent left in its summary for the rest of the team. */
@@ -70,6 +88,12 @@ export function renderBoard(d: BoardData): string {
   const out: string[] = [`# Team board · ${d.project}`, "", `_Kept by harness from its event log; updated ${d.updatedAt}. Agents: read it, do not edit it. Leave notes with \`NOTE:\` lines in your final summary._`, ""];
   out.push("## What the person asked for");
   out.push(...(d.requests.length ? d.requests.slice(-5).map((r) => `- ${clip(oneLine(r.text), 300)}`) : ["- (nothing yet)"]), "");
+  if (d.checklist?.items.length) {
+    const c = d.checklist;
+    const done = c.items.filter((i) => i.state === "done").length;
+    out.push(`## Checklist for the latest request (${done}/${c.items.length} done)`, `_[x] merged after harness's checks · [~] in progress · [ ] not started · [!] needs the person · [-] dropped_`);
+    out.push(...c.items.map((i) => `- ${MARK[i.state]} ${i.taskId}: ${clip(oneLine(i.text), 200)}`), "");
+  }
   if (d.lead) out.push("## Lead's view", d.lead.trim(), "");
   const line = (t: BoardTask) => `- **${t.id}** ${t.title} · \`${t.role}\`${t.agent ? ` (${t.agent}${t.vendor ? `, ${t.vendor}` : ""})` : ""}`;
   const active = d.tasks.filter((t) => ACTIVE.has(t.state));
@@ -115,8 +139,29 @@ export function boardData(p: ProjectRuntime): BoardData {
     } else if (e.type === "branch.merged" && Array.isArray(pl.files)) slot(e.taskId).files = pl.files as string[];
     else if (e.type === "task.needs_human") slot(e.taskId).reason = String(pl.reason);
   }
+  // The latest request's checklist: its tasks plus any follow-ups the lead set for it.
+  let checklist: BoardData["checklist"];
+  const lastReq = [...events].reverse().find((e) => e.type === "team.request");
+  if (lastReq?.type === "team.request") {
+    const ids = [...lastReq.payload.taskIds];
+    for (const e of events) if (e.type === "lead.reported" && e.seq !== undefined && lastReq.seq !== undefined && e.seq > lastReq.seq) ids.push(...e.payload.followups);
+    const all = new Map(p.tasks().map((t) => [t.id, t]));
+    const items: ChecklistItem[] = [];
+    for (const id of ids) {
+      const t = all.get(id);
+      if (!t) continue;
+      let acceptance: string[] = [];
+      try {
+        acceptance = readTaskFile(p.root, id).front.acceptance;
+      } catch {
+        // no spec file: use the title
+      }
+      for (const text of acceptance.length ? acceptance : [t.title]) items.push({ taskId: id, text, state: itemState(t.state) });
+    }
+    checklist = { request: lastReq.payload.text, items };
+  }
   const tasks: BoardTask[] = p.tasks().filter((t: Task) => t.state !== "CANCELLED").map((t) => ({ id: t.id, title: t.title, role: t.role, state: t.state, dependsOn: t.dependsOn, ...byTask.get(t.id) }));
-  return { project: p.config.project, updatedAt: p.now(), requests, tasks, notes, lead };
+  return { project: p.config.project, updatedAt: p.now(), requests, tasks, notes, lead, checklist };
 }
 
 /** The board as agents see it in their prompt: the newest content, capped in size. */

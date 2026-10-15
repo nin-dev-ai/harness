@@ -148,3 +148,6 @@ Research favors cascades over up-front routing for coding: try the cheap model, 
 
 ## 2026-10-16 · M34 Split only independent work
 Studies agree parallel agents help on independent parts and hurt on interdependent edits (and multiply tokens). After planning (and the role fit), harness checks the plan in code: two tasks with no dependency path between them whose `files_hint` overlap are merged into one task when they share a role (one session, acceptance and files combined, larger size kept) and ordered (`depends_on`) when they do not, so the second starts from the merged first. Each change is a `plan.adjusted` event. The chat prompt also asks the planner to split only by disjoint files. Tasks with no files_hint are left as planned.
+
+## 2026-10-16 · M35 Request checklist
+Anthropic's long-running harness keeps a machine-readable feature list with pass/fail per item; prose summaries alone let "done" drift. The board now opens with a checklist for the latest request: every acceptance criterion of its tasks and of the lead's follow-ups for it (or the title when a task has none), marked `[x]` merged after harness's checks, `[~]` in progress, `[ ]` not started, `[!]` needs the person, `[-]` dropped. Harness ticks it from task states (rule 4: no model writes it); the lead is told to work from it and to verify `[x]` items it doubts.

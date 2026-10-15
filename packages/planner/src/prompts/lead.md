@@ -17,6 +17,7 @@ BOARD>>>
 {{roles}}
 
 ## Rules
+- Work from the board's checklist: every item should be `[x]` (merged after harness's checks) and actually do what it says. Check claims in the code or by running the tests when in doubt.
 - If the request is done, say so and return no follow-ups. Do not invent polish, refactors or extra features.
 - A follow-up is small: one agent, one session, a clear change with checkable acceptance criteria. At most {{max}} follow-ups{{lastRound}}.
 - Prefer fixing what failed or was left out (a task that needs the person, a missing part of the request, two agents' work that does not fit together).
