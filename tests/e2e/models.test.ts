@@ -49,5 +49,23 @@ describe("model tiers", () => {
     const reviews = (id: string) => h.project.store.runs.listByTask(h.project.id, id).filter((r) => r.kind === "review").length;
     expect([reviews(small.id), reviews(mid.id)]).toEqual([0, 1]);
   });
+
+  it("each repair moves one tier up: cheap first, stronger only when the checks say so", async () => {
+    s = createScenario({ config: CONFIG });
+    h = await startHarness(s);
+    let n = 0;
+    s.scripts.set("T-001", (req) => (req.mode === "readonly"
+      ? { steps: [{ kind: "result" as const, ok: true, summary: "ok", structured: { summary: "ok", findings: [] } }] }
+      : { sessionId: "s1", steps: [{ kind: "file_change" as const, path: "src/server/a.ts", content: `v${n}\n` }, ...(n++ < 2 ? [{ kind: "file_change" as const, path: "FAIL", content: `boom ${n}` }] : [{ kind: "file_change" as const, path: "FAIL", delete: true }]), { kind: "result" as const, ok: true, summary: "done" }] }));
+    const t = h.project.createTask({ title: "Tiny", role: "backend", size: "S", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    const models = s.adapters.get("slow")!.requests.filter((r) => r.mode === "write").map((r) => r.model);
+    expect(models).toEqual(["small", "middle", "big"]);
+    expect(h.project.store.events.list({ projectId: h.project.id, types: ["model.escalated"] }).map((e) => e.payload)).toEqual([
+      { from: "S", to: "M", reason: "repair 1" },
+      { from: "S", to: "L", reason: "repair 2" },
+    ]);
+  });
 });
 

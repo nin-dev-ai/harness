@@ -22,6 +22,7 @@ export const EVENT_PAYLOADS = {
   "plan.drafted": z.object({ taskIds: z.array(s) }),
   "plan.invalid": z.object({ errors: z.array(s), attempt: z.number() }),
   "task.routed": z.object({ role: s, reason: s }),
+  "model.escalated": z.object({ from: z.enum(["S", "M", "L"]), to: z.enum(["S", "M", "L"]), reason: s }),
   "session.refreshed": z.object({ sessionId: s, tokens: z.number(), budget: z.number() }),
   "team.request": z.object({ text: s, taskIds: z.array(s).default([]) }),
   "lead.reported": z.object({ status: s, followups: z.array(s).default([]), batch: s.optional(), round: z.number().int().default(0), done: z.boolean().default(false) }),

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskState } from "@harness/core";
+import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskSize, type TaskState } from "@harness/core";
 import { capPct, readTaskFile } from "@harness/config";
 import {
   buildConflictPrompt,
@@ -431,6 +431,19 @@ export class ProjectEngine {
     });
   }
 
+  /** The size tier a run uses: the task's size, raised one step per repair so far (S → M → L). */
+  private tierFor(task: Task, kind: RunKind, route: string): TaskSize {
+    const order: TaskSize[] = ["S", "M", "L"];
+    const repairs = this.implementerRuns(task.id).filter((r) => r.kind === "repair").length + (kind === "repair" ? 1 : 0);
+    const tier = order[Math.min(order.length - 1, order.indexOf(task.size) + repairs)]!;
+    const route_ = this.p.config.routes[route];
+    const pick = (t: TaskSize) => route_?.models?.[t] ?? route_?.model;
+    if (tier !== task.size && route_?.models && pick(tier) !== pick(task.size)) {
+      this.p.emit("model.escalated", { from: task.size, to: tier, reason: `repair ${repairs}` }, { taskId: task.id });
+    }
+    return tier;
+  }
+
   /**
    * Vendor session to resume: only from the latest implementer run, only on
    * the same route, and only while it carries less context than the budget.
@@ -537,8 +550,9 @@ export class ProjectEngine {
       timeoutMs: this.p.config.limits.max_task_minutes * 60_000,
       ...(r.resumeSessionId ? { resumeSessionId: r.resumeSessionId } : {}),
       ...(r.jsonSchema ? { jsonSchema: r.jsonSchema } : {}),
-      // Implementers get the model tier for the task's size; reviews use the route's default.
-      ...(r.kind !== "review" ? { size: task.size } : {}),
+      // Implementers get the model tier for the task's size, one tier up per repair (a cascade:
+      // cheap first, stronger only when the checks say it was not enough); reviews use the default.
+      ...(r.kind !== "review" ? { size: this.tierFor(task, r.kind, route) } : {}),
     });
     this.live.set(task.id, { runId, taskId: task.id, workerId, route, kind: r.kind, startedAt: this.p.now() });
     this.p.emit("worker.assigned", { role: this.p.store.workers.get(this.p.id, workerId)!.role }, { taskId: task.id, workerId, runId });
