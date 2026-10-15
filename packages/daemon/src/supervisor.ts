@@ -60,6 +60,11 @@ export function runEnv(project: ProjectRuntime, route: string, parent: NodeJS.Pr
 export class Supervisor {
   private live = new Map<string, { project: ProjectRuntime; route: string; stop?: StopReason }>();
 
+  /** Runs in flight across all projects. */
+  get liveCount(): number {
+    return this.live.size;
+  }
+
   private secrets: string[];
 
   constructor(private parentEnv: NodeJS.ProcessEnv = process.env) {

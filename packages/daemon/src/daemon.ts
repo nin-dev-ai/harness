@@ -13,6 +13,24 @@ import { Supervisor } from "./supervisor.js";
 
 export const DAEMON_VERSION = "0.1.0";
 
+/** Which build of harness a process runs: its entry file and that file's mtime when it started. */
+export interface BuildStamp {
+  entry: string;
+  mtimeMs: number;
+}
+
+export function buildStamp(entry = process.argv[1] ?? ""): BuildStamp {
+  let mtimeMs = 0;
+  try {
+    mtimeMs = fs.statSync(entry).mtimeMs;
+  } catch {
+    // unknown entry: never looks stale
+  }
+  return { entry, mtimeMs };
+}
+
+const STARTED_BUILD = buildStamp();
+
 export interface DaemonOptions {
   home: string;
   clock?: Clock;
@@ -138,7 +156,7 @@ export class Daemon {
 
   handlers(): Record<string, RpcHandler> {
     const base: Record<string, RpcHandler> = {
-      ping: () => ({ version: DAEMON_VERSION, pid: process.pid, projects: [...this.projects.keys()] }),
+      ping: () => ({ version: DAEMON_VERSION, pid: process.pid, projects: [...this.projects.keys()], build: STARTED_BUILD, liveRuns: this.supervisor.liveCount }),
       "events.subscribe": (params, ctx) => {
         const q = (params ?? {}) as { projectId?: string; afterSeq?: number; taskId?: string; runId?: string };
         const backlog = q.afterSeq !== undefined ? this.store.events.list({ ...(q.projectId ? { projectId: q.projectId } : {}), afterSeq: q.afterSeq }) : [];

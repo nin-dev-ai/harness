@@ -19,11 +19,48 @@ export function daemonCommand(env: NodeJS.ProcessEnv): string[] {
   return [process.execPath, entry, "__daemon"];
 }
 
+/** Is the daemon running an older build of this same harness entry file? */
+export function isStaleBuild(daemonBuild: { entry: string; mtimeMs: number } | undefined, myEntry: string | undefined, mtimeOf: (file: string) => number | undefined): boolean {
+  if (!daemonBuild?.entry || !daemonBuild.mtimeMs || daemonBuild.entry !== myEntry) return false;
+  const now = mtimeOf(daemonBuild.entry);
+  return now !== undefined && now > daemonBuild.mtimeMs;
+}
+
+const mtimeOf = (file: string) => {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * A daemon started from an older build of this same harness (you rebuilt or
+ * pulled since it started) is restarted when no agent is mid-run, so you never
+ * talk to old code. With runs in flight it keeps going and you are told.
+ */
+async function replaceIfStale(io: Io, client: DaemonClient): Promise<DaemonClient | undefined> {
+  const info = await client.call<{ pid: number; build?: { entry: string; mtimeMs: number }; liveRuns?: number }>("ping").catch(() => undefined);
+  if (!info || !isStaleBuild(info.build, daemonCommand(io.env).at(-2), mtimeOf)) return client;
+  if (info.liveRuns) {
+    io.err(`harness was updated, but ${info.liveRuns} agent run${info.liveRuns === 1 ? " is" : "s are"} in flight on the old daemon; run \`harness stop\` later to pick up the update.`);
+    return client;
+  }
+  io.err("harness was updated; restarting its background daemon…");
+  await client.call("daemon.stop").catch(() => undefined);
+  client.close();
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && isAlive(info.pid)) await new Promise((r) => setTimeout(r, 100));
+  return undefined;
+}
+
 /** Connect to the daemon, starting it in the background if it is not running. */
 export async function connect(io: Io, opts: { start?: boolean } = {}): Promise<DaemonClient> {
   const paths = homePaths(harnessHome(io.env));
   try {
-    return await DaemonClient.connect(paths.sock, 1000);
+    const c = await DaemonClient.connect(paths.sock, 1000);
+    const kept = opts.start === false ? c : await replaceIfStale(io, c);
+    if (kept) return kept;
   } catch (e) {
     if (!(e instanceof DaemonUnreachableError) || opts.start === false) throw new CliExit(EXIT.unreachable, (e as Error).message);
   }
