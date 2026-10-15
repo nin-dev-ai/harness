@@ -132,6 +132,12 @@ export class ProjectEngine {
     setImmediate(() => void this.tick());
   }
 
+  /** Ask every route's vendor for fresh usage now (for `harness usage` and the panel). */
+  async refreshUsage(): Promise<void> {
+    const routes = Object.keys(this.p.config.routes);
+    for (const g of this.guards) await g.refreshRoutes?.(routes);
+  }
+
   /** Wait until no run or follow-up is in flight (tests, shutdown). */
   async idle(): Promise<void> {
     while (this.inflight.size || this.ticking) {

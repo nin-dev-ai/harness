@@ -271,8 +271,9 @@ export class EnginePlugin implements DaemonPlugin {
         if (!run) throw new HarnessError("NOT_FOUND", `unknown run ${runId}`);
         return { run, events: p.store.events.list({ runId }), artifactDir: path.join(p.root, run.artifactDir) };
       },
-      usage: (params, ctx) => {
+      usage: async (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
+        await e.refreshUsage().catch(() => undefined);
         return snapshot(p, e).routes;
       },
       "limits.set": (params, ctx) => {
