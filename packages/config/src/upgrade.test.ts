@@ -50,6 +50,7 @@ describe("upgrade harness.yaml", () => {
     expect(r.hints).toEqual([
       "backend could also use codex-sub, cursor-key: rerun with --pool, or add `pool: [codex-sub, cursor-key]`",
       "frontend could also use claude-sub, cursor-key: rerun with --pool, or add `pool: [claude-sub, cursor-key]`",
+      'cursor-key (cursor) reports no usage: set a budget so harness can pace it, e.g. `harness limits set cursor-key --window budget --budget "40 runs/day"`',
     ]);
   });
 

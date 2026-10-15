@@ -136,3 +136,6 @@ Agents' merged work sat on `harness/integration` and never reached the person's 
 
 ## 2026-10-15 · M26 Review only where it pays
 In a live run the reviewer took ~3 minutes per task, often longer than the change itself, and it reviewed one-line docs edits. The review prompt now asks for a verdict from the diff (open files only to settle a doubt). `limits.review_sizes` chooses which task sizes get a reviewer; the default stays all sizes, and the setup wizard writes `[M, L]` so small chat requests merge once harness's own checks pass. Checks still gate every merge: skipping review never skips verification.
+
+## 2026-10-16 · M31 Usage you can trust
+Pooling is only as good as its usage data. Codex: before ranking a pool, harness asks Codex's app-server (`account/rateLimits/read`) for exact 5h and weekly usage, at most once a minute, with the real CLI only (tests and replayers keep the session-log path); it never touches the reset-credit methods. Claude: readings arrive only with runs, so the daemon keeps the latest vendor windows per vendor and login (`accountUsage`) and every project uses them; it is seeded from stored windows at start so restarts keep it. Cursor: no data, so `setup --upgrade` suggests a manual budget, and a `budget` window now counts toward pool ranking. Pools refresh their members' usage right before ranking.

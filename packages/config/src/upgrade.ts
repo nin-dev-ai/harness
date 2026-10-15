@@ -66,6 +66,13 @@ export function upgradeConfigText(text: string, o: UpgradeOptions = {}): Upgrade
     } else hints.push(`${name} could also use ${pool.join(", ")}: rerun with --pool, or add \`pool: [${pool.join(", ")}]\``);
   }
 
+  // Vendors that report no usage headless need a manual budget, or pooling can only guess.
+  for (const [rname, r] of Object.entries(config.routes)) {
+    if (r.vendor === "cursor" && !config.limits.routes[rname]?.manual_budget) {
+      hints.push(`${rname} (cursor) reports no usage: set a budget so harness can pace it, e.g. \`harness limits set ${rname} --window budget --budget "40 runs/day"\``);
+    }
+  }
+
   if (!changes.length) return { text, changes, hints };
   const out = doc.toString({ lineWidth: 0 });
   parseHarnessConfig(out);
