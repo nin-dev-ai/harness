@@ -70,12 +70,19 @@ for _ in $(seq 1 450); do
   printf "."; sleep 2
 done
 echo
-sleep 20   # give the lead its turn
+printf "== waiting for the lead"
+for _ in $(seq 1 150); do
+  h board --no-color | grep -q "## Lead's view" && break
+  printf "."; sleep 2
+done
+echo
 h status --no-color | sed -n '/TASKS/,$p'
 echo "== timeline"
 h export --no-color 2>/dev/null | node -e 'const l=require("fs").readFileSync(0,"utf8").trim().split("\n").map(JSON.parse).filter(e=>e.kind==="event"&&["run.started","run.finished","branch.merged","lead.reported"].includes(e.type)); for (const e of l) console.log(e.ts.slice(11,19), e.type, e.taskId??"", e.workerId??"", e.payload?.route??"")' || true
 echo "== board"
 h board --no-color
+echo "== report"
+h report --no-color || true
 echo "== land"
 h land --no-color || true
 git log --oneline -5
