@@ -3,7 +3,6 @@ import path from "node:path";
 import type { Command } from "commander";
 import type { Task } from "@harness/core";
 import { duration, stateColor, table } from "../format.js";
-import { CliExit, EXIT } from "../io.js";
 import { collect, taskIdArg, type Ctx } from "../ctx.js";
 import { openProject } from "./_client.js";
 
@@ -13,7 +12,7 @@ export function register(program: Command, ctx: Ctx): void {
   task
     .command("add <title>")
     .description("Create a task by hand (DRAFT until approved, unless --approve)")
-    .option("--role <role>", "role that does the task")
+    .option("--role <role>", "role that does the task (default: harness picks)")
     .option("--after <ids>", "tasks that must be merged first (comma-separated, repeatable)", collect, [])
     .option("--spec <file>", "markdown file with the description")
     .option("--size <size>", "S | M | L", "M")
@@ -23,12 +22,9 @@ export function register(program: Command, ctx: Ctx): void {
     .action(async (title: string, o: { role?: string; after: string[]; spec?: string; size: string; acceptance: string[]; files: string[]; approve?: boolean }) => {
       const sess = await openProject(ctx.io, ctx.dir());
       try {
-        const status = await sess.call<{ tasks: Task[] }>("status");
-        void status;
-        const role = o.role ?? (await defaultRole(sess));
         const body = o.spec ? fs.readFileSync(path.resolve(ctx.io.cwd, o.spec), "utf8") : "";
         const t = await sess.call<Task>("task.add", {
-          title, role, size: o.size.toUpperCase(), dependsOn: o.after.map(taskIdArg), body, acceptance: o.acceptance, filesHint: o.files, approve: Boolean(o.approve),
+          title, ...(o.role ? { role: o.role } : {}), size: o.size.toUpperCase(), dependsOn: o.after.map(taskIdArg), body, acceptance: o.acceptance, filesHint: o.files, approve: Boolean(o.approve),
         });
         if (ctx.json()) ctx.printJson(t);
         else ctx.print(`${t.id} ${t.state} ${t.role}: ${t.title}${t.state === "DRAFT" ? `\n  approve with: harness approve ${t.id}` : ""}`);
@@ -155,9 +151,3 @@ export function registerImport(task: Command, ctx: Ctx): void {
     });
 }
 
-async function defaultRole(sess: { call<T>(m: string, p?: Record<string, unknown>): Promise<T> }): Promise<string> {
-  const snap = await sess.call<{ workers: { role: string }[] }>("status");
-  const roles = [...new Set(snap.workers.map((w) => w.role))].filter((r) => r !== "reviewer" && r !== "planner");
-  if (roles.length === 1) return roles[0]!;
-  throw new CliExit(EXIT.usage, `--role is required (one of: ${roles.join(", ")})`);
-}

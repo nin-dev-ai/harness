@@ -241,6 +241,10 @@ describe("chat with your team", () => {
     expect(calls.find((c) => c.method === "pause")?.params).toEqual({ task: "T-005" });
     await send(ui, "/task Add health check @backend");
     expect(calls.find((c) => c.method === "task.add")?.params).toMatchObject({ title: "Add health check", role: "backend", approve: true });
+    calls.length = 0;
+    await send(ui, "/switch team");
+    await send(ui, "/task Fix README typos");
+    expect(calls.find((c) => c.method === "task.add")?.params).toEqual({ title: "Fix README typos", approve: true });
     await send(ui, "/approve all");
     expect(calls.find((c) => c.method === "task.approve")?.params).toEqual({ all: true });
     store.stop();

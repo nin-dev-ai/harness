@@ -12,7 +12,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "panes", args: "", desc: "every agent's live session side by side (esc back)" },
   { name: "zoom", args: "", desc: "the selected agent's live session full screen (esc back)" },
   { name: "tasks", args: "", desc: "every task and its state" },
-  { name: "task", args: "<title> @agent", desc: "add one task for a specific agent" },
+  { name: "task", args: "<title> [@agent]", desc: "add one task; harness picks the agent unless you name one" },
   { name: "plan", args: "<file.md>", desc: "split a document into draft tasks (no start)" },
   { name: "approve", args: "<T-n|A-n|all>", desc: "approve drafts or pending approvals" },
   { name: "run", args: "", desc: "start the scheduler" },

@@ -219,15 +219,16 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         return noteTeam("warn", `no agent "${a}". Try ${workers.map((w) => w.id).join(", ")}`);
       }
       case "task": {
+        // @agent is optional: without it, the focused agent or harness's router picks.
         const m = /(?:^|\s)@([\w-]+)\s*$/.exec(a);
         const w = m ? workers.find((x) => x.role === m[1] || x.id === m[1]) : focusWorker;
-        const role = w?.role;
+        const role = w && writeRoles.includes(w.role) ? w.role : undefined;
         const title = (m ? a.slice(0, m.index) : a).trim();
-        if (!title || !role || !writeRoles.includes(role)) return noteTeam("warn", `usage: /task <title> @agent   (${writeRoles.join(", ")})`);
-        const r = await call<{ id: string }>("task.add", { title, role, approve: true });
+        if (!title || (m && !role)) return noteTeam("warn", `usage: /task <title> [@agent]   (${writeRoles.join(", ")})`);
+        const r = await call<{ id: string; role: string }>("task.add", { title, ...(role ? { role } : {}), approve: true });
         if (r) {
           await call("run");
-          noteTeam("ok", `${r.id} added for ${role} and started`);
+          noteTeam("ok", `${r.id} → ${r.role}${role ? "" : " (picked for you)"}, started`);
         }
         return;
       }
