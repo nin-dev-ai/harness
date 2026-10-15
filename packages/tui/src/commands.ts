@@ -11,6 +11,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "switch", args: "<agent|team>", desc: "talk to one agent, or back to the whole team (or Tab)" },
   { name: "panes", args: "", desc: "every agent's live session side by side (esc back)" },
   { name: "zoom", args: "", desc: "the selected agent's live session full screen (esc back)" },
+  { name: "board", args: "", desc: "the team board (HARNESS.md): asks, who does what, what is done, notes" },
   { name: "tasks", args: "", desc: "every task and its state" },
   { name: "task", args: "<title> [@agent]", desc: "add one task; harness picks the agent unless you name one" },
   { name: "plan", args: "<file.md>", desc: "split a document into draft tasks (no start)" },

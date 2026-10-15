@@ -42,6 +42,7 @@ function fakeApi(snapshot: () => StatusSnapshot = BASE) {
       if (method === "task.show") return { spec: { body: "Show a watchlist with FRESH / STALE states", front: { acceptance: ["lists symbols"] } }, runs: [{ id: "R-T-004-1", kind: "initial", state: "RUNNING", route: "codex", checks: [{ checkId: "unit", ok: false }] }] } as T;
       if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added line\n-removed line", checks: [{ checkId: "unit", ok: false, required: true }], gate: "gate.failed", findings: [], fileStats: [{ path: "src/ui/Watchlist.tsx", insertions: 30, deletions: 4 }] } as T;
       if (method === "dispatch") return { summary: "Quote feed first, then the panel.", tasks: [{ id: "T-008", title: "Quote feed", role: "backend", dependsOn: [] }, { id: "T-009", title: "Watchlist", role: "frontend", dependsOn: ["T-008"] }] } as T;
+      if (method === "board") return { file: ".harness/HARNESS.md", text: "# Team board · market-terminal\n\n## Working now\n- **T-004** Watchlist panel · `frontend` (frontend-1, codex) · running" } as T;
       if (method === "agent.message") return { taskId: "T-004", delivery: "now" } as T;
       if (method === "task.add") return { id: "T-010" } as T;
       if (method === "task.approve") return { approved: params.all ? ["T-007"] : ((params.ids as string[]) ?? []) } as T;
@@ -245,6 +246,11 @@ describe("chat with your team", () => {
     await send(ui, "/switch team");
     await send(ui, "/task Fix README typos");
     expect(calls.find((c) => c.method === "task.add")?.params).toEqual({ title: "Fix README typos", approve: true });
+    await send(ui, "/board");
+    expect(ui.lastFrame()).toContain("Team board · market-terminal");
+    expect(ui.lastFrame()).toContain("T-004 Watchlist panel · frontend (frontend-1, codex) · running");
+    ui.stdin.write("\u001B");
+    await flush();
     await send(ui, "/approve all");
     expect(calls.find((c) => c.method === "task.approve")?.params).toEqual({ all: true });
     store.stop();

@@ -11,6 +11,7 @@ import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { pickRole, Planner } from "./planning.js";
+import { BOARD_FILE, boardData, renderBoard } from "./board.js";
 import { suggestRoutes } from "./suggest.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
@@ -324,6 +325,11 @@ export class EnginePlugin implements DaemonPlugin {
         new Planner(p, d.supervisor).applyRoles(a.proposal);
         e.kick();
         return { roles: Object.keys(p.config.roles) };
+      },
+      /** The team board (HARNESS.md) as Markdown. */
+      board: (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        return { file: BOARD_FILE, text: renderBoard(boardData(p)) };
       },
       "agent.message": async (params, ctx) => {
         const { e } = ctxProject(params, ctx.attended);

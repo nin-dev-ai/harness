@@ -33,7 +33,7 @@ export interface AppProps {
   version?: string;
 }
 
-type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "agents" } | { kind: "tasks" } | { kind: "panes" } | { kind: "zoom" } | { kind: "review" | "diff"; data: ReviewData };
+type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "agents" } | { kind: "tasks" } | { kind: "board"; text: string } | { kind: "panes" } | { kind: "zoom" } | { kind: "review" | "diff"; data: ReviewData };
 
 const taskId = (s: string) => {
   const m = /^T?-?(\d+)$/i.exec(s.trim());
@@ -187,6 +187,14 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         return setOverlay({ kind: "agents" });
       case "tasks":
         return setOverlay({ kind: "tasks" });
+      case "board": {
+        const r = await call<{ text: string }>("board");
+        if (r) {
+          setScroll(0);
+          setOverlay({ kind: "board", text: r.text });
+        }
+        return;
+      }
       case "quit":
         return quit({ action: "quit" });
       case "stop":
@@ -359,7 +367,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
     if (key.pageDown) return setScroll((s) => s + 20);
     if (key.upArrow) {
       if (menu.length) return setMenuIndex((i) => Math.max(0, i - 1));
-      if (overlay.kind === "diff") return setScroll((s) => Math.max(0, s - 1));
+      if (overlay.kind === "diff" || overlay.kind === "board") return setScroll((s) => Math.max(0, s - 1));
       if (!history.length) return;
       const pos = histPos < 0 ? history.length - 1 : Math.max(0, histPos - 1);
       setHistPos(pos);
@@ -369,7 +377,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
     }
     if (key.downArrow) {
       if (menu.length) return setMenuIndex((i) => Math.min(menu.length - 1, i + 1));
-      if (overlay.kind === "diff") return setScroll((s) => s + 1);
+      if (overlay.kind === "diff" || overlay.kind === "board") return setScroll((s) => s + 1);
       if (histPos < 0) return;
       const pos = histPos + 1;
       if (pos >= history.length) {
@@ -535,7 +543,18 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         ))}
       </Box>
     );
-  else if (overlay.kind === "zoom" && focusWorker) area = paneFor(focusWorker, columns, areaHeight, true, true);
+  else if (overlay.kind === "board") {
+    const lines = overlay.text.split("\n");
+    area = (
+      <Box flexDirection="column">
+        {lines.slice(scroll, scroll + areaHeight).map((l, i) => (
+          <Text key={i} wrap="truncate-end" color={l.startsWith("#") ? t.accent : l.startsWith("_") ? C.dim : undefined} bold={l.startsWith("#")}>
+            {l.replace(/\*\*/g, "").replace(/`/g, "") || " "}
+          </Text>
+        ))}
+      </Box>
+    );
+  } else if (overlay.kind === "zoom" && focusWorker) area = paneFor(focusWorker, columns, areaHeight, true, true);
   else if (overlay.kind === "panes") {
     const n = Math.max(1, workers.length);
     // Balance the grid: 5 agents on a wide screen are 3 + 2, not 4 + 1.

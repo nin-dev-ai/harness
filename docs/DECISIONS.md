@@ -115,3 +115,6 @@ A live chat run planned two tasks for `frontend` (code, then a README chained af
 
 ## 2026-10-15 · M17 Routing without tags
 Users should not have to say which agent does what. A deterministic router (`@harness/planner` `routeWork`) scores write roles on keyword hints, words from the role's instructions, and mentioned file paths against `paths_allow` (a role that cannot write a mentioned file is out). A clear winner starts immediately with no planning run; signal for two roles, or none, goes to the planner (or the least busy writer when there is no planner). Rule 4 holds: the choice is code, and it is recorded as `task.routed` with its reason.
+
+## 2026-10-15 · M18 Team board
+Agents run in separate vendor sessions, so each one only knew its own task. One board, `.harness/HARNESS.md`, is now the shared memory: rebuilt from the event log on every relevant event (rule 4: no model writes it), and carried in every task prompt (capped at 6,000 characters). Agents contribute through `NOTE:` lines in their final summary, which harness lifts onto the board. It lives under `.harness/` so it never enters task branches or merges. `/board` and `harness board` show it.
