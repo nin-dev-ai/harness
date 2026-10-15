@@ -122,6 +122,8 @@ export const HarnessConfigSchema = z
     version: z.literal(1),
     project: name,
     integration_branch: z.string().default("harness/integration"),
+    /** "auto": every merge that passes lands in the base branch at once (fast-forward, or a merge commit on a clean checkout). */
+    land: z.enum(["manual", "auto"]).default("manual"),
     base_branch: z.string().default("main"),
     routes: z.record(name, RouteSchema),
     roles: z.record(name, RoleSchema),

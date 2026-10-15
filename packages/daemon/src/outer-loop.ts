@@ -27,6 +27,8 @@ import {
   filesWithConflictMarkers,
   mergeTask,
   replayOnIntegration,
+  syncIntegration,
+  landIntegration,
   removeWorktree,
   workingTreeHash,
 } from "@harness/workspace";
@@ -341,6 +343,10 @@ export class ProjectEngine {
   private async ensureWorkspace(task: Task): Promise<{ ok: true; path: string } | { ok: false; detail: string }> {
     const cfg = this.p.config;
     await ensureIntegrationBranch(this.p.root, cfg.integration_branch, cfg.base_branch);
+    // New work starts from the person's current code, never a stale copy.
+    if (!task.branch && (await syncIntegration(this.p.root, cfg.integration_branch, cfg.base_branch)) === "synced") {
+      this.p.emit("integration.synced", { base: cfg.base_branch, commit: await git(this.p.root, ["rev-parse", cfg.integration_branch]) });
+    }
     const branch = task.branch ?? taskBranch(task.role, task.id, task.title);
     const wt = await createWorktree(this.p.root, task.id, branch, cfg.integration_branch);
     if (wt.created) {
@@ -831,6 +837,11 @@ export class ProjectEngine {
     if (r.status === "merged") {
       const files = (await git(this.p.root, ["diff", "--name-only", `${r.commit}~1`, r.commit]).catch(() => "")).split("\n").filter(Boolean);
       this.p.emit("branch.merged", { branch, into: cfg.integration_branch, commit: r.commit, files }, { taskId });
+      if (cfg.land === "auto") {
+        const l = await landIntegration(this.p.root, cfg.integration_branch, cfg.base_branch).catch((e: Error) => ({ status: "refused" as const, detail: e.message }));
+        if (l.status === "landed") this.p.emit("integration.landed", { into: cfg.base_branch, mode: l.mode, commit: l.commit, commits: l.commits });
+        else if (l.status !== "nothing") this.p.emit("land.blocked", { reason: l.status === "conflict" ? `conflicts in ${l.files.join(", ")}` : l.detail });
+      }
       this.p.transition(taskId, "MERGED");
       await this.markStale(taskId, r.commit);
       await removeWorktree(this.p.root, taskId);

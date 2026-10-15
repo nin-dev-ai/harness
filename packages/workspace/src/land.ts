@@ -72,3 +72,21 @@ export async function rebuildOrphanedIntegration(root: string, integration: stri
   await git(root, ["branch", integration, await revParse(root, base)]);
   return kept;
 }
+
+/**
+ * Keep the integration branch on the base branch's current code: when it
+ * holds nothing that is not already in the base, move it to the base head
+ * (a fast-forward of a harness/** branch). Agents then always start from the
+ * person's current code instead of a stale copy. Returns what happened.
+ */
+export async function syncIntegration(root: string, integration: string, base: string): Promise<"synced" | "unchanged" | "diverged"> {
+  assertHarnessBranch(integration);
+  if (!(await branchExists(root, integration)) || !(await branchExists(root, base))) return "unchanged";
+  if (!(await sharesHistory(root, integration, base))) return "diverged";
+  const ahead = Number(await git(root, ["rev-list", "--count", `${base}..${integration}`]));
+  if (ahead > 0) return "diverged";
+  const [ih, bh] = [await revParse(root, integration), await revParse(root, base)];
+  if (ih === bh) return "unchanged";
+  await git(root, ["update-ref", `refs/heads/${integration}`, bh, ih]);
+  return "synced";
+}
