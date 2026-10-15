@@ -129,4 +129,21 @@ describe("dispatch (chat to the team)", () => {
       { key: "feed", from: "frontend", to: "backend", files: ["src/server/**"] },
     ]);
   });
+
+  it("one agent's job starts at once with no planner run; /task needs no @agent", async () => {
+    s2 = createScenario({ config: CONFIG });
+    h2 = await startHarness(s2);
+    s2.scripts.set("T-001", byMode(writes({ "src/server/feed.ts": "x\n" })));
+    const call = h2.daemon.handlers();
+    const ctx = { attended: true, subscribe: () => () => undefined };
+    const r = (await call.dispatch!({ projectId: h2.project.id, document: "Fix the 500 in src/server/feed.ts when the quotes API gets an empty symbol" }, ctx)) as { summary: string; tasks: { id: string; role: string }[] };
+    expect(r.tasks.map((x) => x.role)).toEqual(["backend"]);
+    expect(r.summary).toContain("backend takes this");
+    expect((s2.adapters.get("rev")?.requests ?? []).filter((q) => q.runId.startsWith("R-PLAN"))).toHaveLength(0);
+    const t = (await call["task.add"]!({ projectId: h2.project.id, title: "Restyle the watchlist page layout" }, ctx)) as { role: string };
+    expect(t.role).toBe("frontend");
+    expect(h2.project.store.events.list({ projectId: h2.project.id, types: ["task.routed"] }).map((e) => (e.payload as { role: string }).role)).toEqual(["backend", "frontend"]);
+    await h2.until("T-001", "MERGED");
+  });
 });
+

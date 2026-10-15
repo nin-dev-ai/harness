@@ -10,7 +10,7 @@ import { ProjectEngine } from "./outer-loop.js";
 import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
-import { Planner } from "./planning.js";
+import { pickRole, Planner } from "./planning.js";
 import { suggestRoutes } from "./suggest.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
@@ -102,7 +102,7 @@ export class EnginePlugin implements DaemonPlugin {
         const a = parse(
           P.extend({
             title: z.string().min(1),
-            role: z.string(),
+            role: z.string().optional(),
             size: z.enum(["S", "M", "L"]).optional(),
             dependsOn: z.array(z.string()).optional(),
             body: z.string().optional(),
@@ -113,10 +113,12 @@ export class EnginePlugin implements DaemonPlugin {
           }),
           params,
         );
+        const picked = a.role ? undefined : pickRole(p, `${a.title}\n${a.body ?? ""}\n${(a.filesHint ?? []).join(" ")}`);
         const t = p.createTask({
-          title: a.title, role: a.role, ...(a.size ? { size: a.size as TaskSize } : {}), dependsOn: a.dependsOn ?? [], body: a.body ?? "",
+          title: a.title, role: a.role ?? picked!.role, ...(a.size ? { size: a.size as TaskSize } : {}), dependsOn: a.dependsOn ?? [], body: a.body ?? "",
           acceptance: a.acceptance ?? [], filesHint: a.filesHint ?? [], ...(a.contractRef ? { contractRef: a.contractRef } : {}),
         });
+        if (picked) p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
         if (a.approve) this.approve(p, [t.id]);
         e.kick();
         return p.task(t.id);
@@ -290,18 +292,19 @@ export class EnginePlugin implements DaemonPlugin {
       dispatch: async (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("chat") }), params);
-        const writers = Object.entries(p.config.roles).filter(([, r]) => r.mode === "write").map(([n]) => n);
         let created: Task[];
         let summary = "";
-        if (p.config.roles.planner) {
+        const picked = pickRole(p, a.document);
+        if (picked.sure || !p.config.roles.planner) {
+          // One agent's job (or no planner to ask): start it now, no planning run.
+          const t = p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: picked.role, body: a.document });
+          p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
+          created = [t];
+          summary = `${picked.role} takes this (${picked.reason})`;
+        } else {
           const r = await new Planner(p, d.supervisor).plan(a.document, a.source, { chat: true });
           created = r.tasks;
           summary = r.summary;
-        } else if (writers.length === 1) {
-          // No planner agent, one writer: the whole message is its task.
-          created = [p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: writers[0]!, body: a.document })];
-        } else {
-          throw new HarnessError("CONFIG", "there is no planner agent to split work across agents: add one with `harness setup`");
         }
         this.approve(p, created.map((t) => t.id));
         if (e.running) e.kick();

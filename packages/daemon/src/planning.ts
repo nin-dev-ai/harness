@@ -12,6 +12,7 @@ import {
   topoOrder,
   validatePlan,
   validateRoles,
+  routeWork,
   type PlannedTask,
   type PlanOutput,
   type RoleInfo,
@@ -51,6 +52,28 @@ function covers(role: RoleInfo, hint: string): boolean {
   if (!role.pathsAllow) return true;
   const probe = hint.replace(/\*\*?/g, "x");
   return role.pathsAllow.some((g) => matcher(g)(probe));
+}
+
+/** Role infos for every role in the project config. */
+export function roleInfos(p: ProjectRuntime): RoleInfo[] {
+  return Object.entries(p.config.roles).map(([name, r]) => ({ name, mode: r.mode, instructions: r.instructions, pathsAllow: r.paths_allow, concurrency: r.concurrency }));
+}
+
+const ACTIVE = new Set(["DRAFT", "QUEUED", "RUNNING", "GATING", "REPAIRING", "REVIEWING", "PAUSED", "BLOCKED"]);
+
+/**
+ * Pick the agent for a piece of work with no model call. `sure` is false when
+ * the router had no clear winner and the least busy write role was taken instead.
+ */
+export function pickRole(p: ProjectRuntime, text: string): { role: string; reason: string; sure: boolean } {
+  const roles = roleInfos(p);
+  const r = routeWork(text, roles, covers);
+  if (r.role) return { role: r.role, reason: r.reason, sure: true };
+  const writers = roles.filter((x) => x.mode === "write");
+  if (!writers.length) throw new HarnessError("CONFIG", "no agent can write code: add one with `harness setup`");
+  const load = (name: string) => p.tasks().filter((t) => t.role === name && ACTIVE.has(t.state)).length / (writers.find((w) => w.name === name)!.concurrency ?? 1);
+  const best = [...writers].sort((a, b) => load(a.name) - load(b.name))[0]!;
+  return { role: best.name, reason: `${r.reason}; ${best.name} is least busy`, sure: false };
 }
 
 export interface RoleMove {
@@ -119,7 +142,7 @@ export class Planner {
   }
 
   private roleInfo(): RoleInfo[] {
-    return Object.entries(this.p.config.roles).map(([name, r]) => ({ name, mode: r.mode, instructions: r.instructions, pathsAllow: r.paths_allow, concurrency: r.concurrency }));
+    return roleInfos(this.p);
   }
 
   /** Two attempts at most: the first, and one retry carrying the validation errors. */
