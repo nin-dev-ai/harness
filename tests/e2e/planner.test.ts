@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { HarnessError } from "@harness/core";
-import { Planner } from "@harness/daemon";
+import { Planner, separateOverlaps } from "@harness/daemon";
 import { byMode, createScenario, DEFAULT_CONFIG, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
 
 /** Planner scenarios (M12): schema-validated drafts, one retry, typed failure. */
@@ -10,6 +10,30 @@ const CONFIG = DEFAULT_CONFIG.replace("roles:\n", "roles:\n  planner:\n    route
 
 const plan = (tasks: unknown[]) => ({ steps: [{ kind: "result" as const, ok: true, summary: "plan", structured: { summary: "two tasks", tasks } }] });
 const t = (key: string, o: Record<string, unknown> = {}) => ({ key, title: `Task ${key}`, role: "backend", size: "S", depends_on: [], acceptance: ["passes"], files_hint: [], contract_ref: null, description: `do ${key}`, ...o });
+
+describe("split only independent work", () => {
+  it("merges same-role tasks on the same files, chains different roles, leaves independent ones alone", () => {
+    const p = (key: string, role: string, files: string[], o: Record<string, unknown> = {}) => ({ key, title: key, role, size: "S" as const, depends_on: [] as string[], acceptance: [`${key} ok`], files_hint: files, contract_ref: null, description: `do ${key}`, ...o });
+    const r = separateOverlaps([
+      p("a", "backend", ["src/server/feed.ts"]),
+      p("b", "backend", ["src/server/**"], { size: "M" }),
+      p("c", "frontend", ["src/server/feed.ts", "src/ui/x.ts"]),
+      p("d", "frontend", ["src/ui/other.ts"]),
+      p("e", "frontend", ["src/ui/x.ts"], { depends_on: ["c"] }),
+    ]);
+    expect(r.tasks.map((t) => [t.key, t.role, t.size, t.depends_on])).toEqual([
+      ["a", "backend", "M", []],
+      ["c", "frontend", "S", ["a"]],
+      ["d", "frontend", "S", []],
+      ["e", "frontend", "S", ["c"]],
+    ]);
+    expect(r.tasks[0]).toMatchObject({ title: "a; b", acceptance: ["a ok", "b ok"], description: "do a\n\ndo b" });
+    expect(r.changes).toEqual([
+      { kind: "merged", keys: ["a", "b"], files: ["src/server/**"] },
+      { kind: "chained", keys: ["a", "c"], files: ["src/server/feed.ts"] },
+    ]);
+  });
+});
 
 describe("planner", () => {
   let s: Scenario;

@@ -21,6 +21,7 @@ import {
 import { protectedTouched } from "@harness/policy";
 import { git } from "@harness/workspace";
 import matcher from "./glob.js";
+import { filesOverlap } from "./scheduler.js";
 import type { ProjectRuntime } from "./project.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
 
@@ -74,6 +75,61 @@ export function pickRole(p: ProjectRuntime, text: string): { role: string; reaso
   const load = (name: string) => p.tasks().filter((t) => t.role === name && ACTIVE.has(t.state)).length / (writers.find((w) => w.name === name)!.concurrency ?? 1);
   const best = [...writers].sort((a, b) => load(a.name) - load(b.name))[0]!;
   return { role: best.name, reason: `${r.reason}; ${best.name} is least busy`, sure: false };
+}
+
+export interface PlanAdjustment {
+  kind: "merged" | "chained";
+  keys: [string, string];
+  files: string[];
+}
+
+/**
+ * Split only independent work. Two planned tasks with no dependency between
+ * them whose files overlap would collide (or conflict at merge): for the same
+ * role they become one task (one session), for different roles the later one
+ * waits for the earlier. Tasks with no files_hint are left as planned.
+ */
+export function separateOverlaps(input: PlannedTask[]): { tasks: PlannedTask[]; changes: PlanAdjustment[] } {
+  const tasks = input.map((t) => ({ ...t, depends_on: [...t.depends_on], acceptance: [...t.acceptance], files_hint: [...t.files_hint] }));
+  const changes: PlanAdjustment[] = [];
+  const byKey = () => new Map(tasks.map((t) => [t.key, t]));
+  const reaches = (from: string, to: string): boolean => {
+    const map = byKey();
+    const seen = new Set<string>();
+    const stack = [from];
+    while (stack.length) {
+      const k = stack.pop()!;
+      if (k === to) return true;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      stack.push(...(map.get(k)?.depends_on ?? []));
+    }
+    return false;
+  };
+  const SIZE = { S: 0, M: 1, L: 2 } as const;
+  for (let i = 1; i < tasks.length; i++) {
+    const t = tasks[i]!;
+    const u = tasks.slice(0, i).find((x) => filesOverlap(x.files_hint, t.files_hint) && !reaches(x.key, t.key) && !reaches(t.key, x.key));
+    if (!u) continue;
+    const files = t.files_hint.filter((f) => filesOverlap([f], u.files_hint));
+    if (u.role === t.role) {
+      u.title = `${u.title}; ${t.title}`.slice(0, 200);
+      u.description = [u.description, t.description].filter(Boolean).join("\n\n");
+      u.acceptance = [...u.acceptance, ...t.acceptance];
+      u.files_hint = [...new Set([...u.files_hint, ...t.files_hint])];
+      u.depends_on = [...new Set([...u.depends_on, ...t.depends_on])].filter((k) => k !== u.key);
+      if (SIZE[t.size] > SIZE[u.size]) u.size = t.size;
+      if (!u.contract_ref && t.contract_ref) u.contract_ref = t.contract_ref;
+      for (const x of tasks) x.depends_on = [...new Set(x.depends_on.map((k) => (k === t.key ? u.key : k)))].filter((k) => k !== x.key);
+      tasks.splice(i, 1);
+      i--;
+      changes.push({ kind: "merged", keys: [u.key, t.key], files });
+    } else {
+      t.depends_on.push(u.key);
+      changes.push({ kind: "chained", keys: [u.key, t.key], files });
+    }
+  }
+  return { tasks, changes };
 }
 
 export interface RoleMove {
@@ -188,7 +244,9 @@ export class Planner {
     );
     const fitted = fitRoles(raw.tasks, roles);
     for (const m of fitted.moves) this.p.emit("plan.reassigned", { ...m });
-    const plan = { ...raw, tasks: fitted.tasks };
+    const separated = separateOverlaps(fitted.tasks);
+    for (const c of separated.changes) this.p.emit("plan.adjusted", { kind: c.kind, first: c.keys[0], second: c.keys[1], files: c.files });
+    const plan = { ...raw, tasks: separated.tasks };
     const ids = new Map<string, string>();
     const created: Task[] = [];
     const needsApproval: string[] = [];

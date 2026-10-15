@@ -26,6 +26,7 @@ export const EVENT_PAYLOADS = {
   "session.refreshed": z.object({ sessionId: s, tokens: z.number(), budget: z.number() }),
   "team.request": z.object({ text: s, taskIds: z.array(s).default([]) }),
   "lead.reported": z.object({ status: s, followups: z.array(s).default([]), batch: s.optional(), round: z.number().int().default(0), done: z.boolean().default(false) }),
+  "plan.adjusted": z.object({ kind: z.enum(["merged", "chained"]), first: s, second: s, files: z.array(s) }),
   "plan.reassigned": z.object({ key: s, from: s, to: s, files: z.array(s) }),
   "task.approved": z.object({ by: s.default("user") }),
   // Tasks

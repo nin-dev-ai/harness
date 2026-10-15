@@ -145,3 +145,6 @@ A merge conflict used to go straight to the person. Now the task's own agent get
 
 ## 2026-10-16 · M33 Escalate on failure (cascade)
 Research favors cascades over up-front routing for coding: try the cheap model, escalate only when a reliable check says it was not enough, and judge by cost per completed task. Harness's own checks are that signal. Each repair run now uses one size tier higher than the last (S → M → L, capped at L), on routes that define `models`; `model.escalated` records each step. Routes without tiers are unchanged. Claude Code 2.1.301's `--effort` flag is a possible cheaper lever; it waits for a recorded fixture (AGENTS.md rule 3) before harness uses it.
+
+## 2026-10-16 · M34 Split only independent work
+Studies agree parallel agents help on independent parts and hurt on interdependent edits (and multiply tokens). After planning (and the role fit), harness checks the plan in code: two tasks with no dependency path between them whose `files_hint` overlap are merged into one task when they share a role (one session, acceptance and files combined, larger size kept) and ordered (`depends_on`) when they do not, so the second starts from the merged first. Each change is a `plan.adjusted` event. The chat prompt also asks the planner to split only by disjoint files. Tasks with no files_hint are left as planned.

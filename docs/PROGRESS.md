@@ -40,4 +40,5 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M31 Usage you can trust** — Codex exact usage from its app-server (no quota spent); Claude readings shared across projects per account and kept across restarts; Cursor manual-budget hint; pools refresh usage right before ranking and count manual budgets.
 - [x] **M32 Agent-resolved conflicts** — on a merge conflict, harness replays the task onto the latest integration branch with `git apply --3way` (markers in files, nothing in progress) and the task's agent resolves them in its own session; a built-in `conflict-markers` gate check blocks any leftover markers; a second conflict goes to the person.
 - [x] **M33 Escalate on failure** — each repair uses the next model tier up (S → M → L) on tiered routes, recorded as `model.escalated`.
+- [x] **M34 Split only independent work** — planned tasks whose files overlap are merged (same role) or ordered (different roles) in code, recorded as `plan.adjusted`; the chat prompt asks for splits by disjoint files.
 
