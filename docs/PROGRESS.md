@@ -47,3 +47,12 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M38 Project facts** — durable facts at the top of the board and in every prompt; the lead adds confirmed ones (≤3 per report), the person uses `/fact` or `harness facts`; capped at 15.
 - [x] **Live check of M31–M38** (2026-10-16, real Claude): routed to backend with no planning run, merged in 16s, checklist 1/1, the lead (real Claude, new reply format) re-ran the tests, reported done and added a confirmed project fact, `harness report` showed the run, `land` fast-forwarded main: 32s end to end. The demo script now waits for the lead's verdict before stopping.
 
+## Phase 3 — execution that finishes (2026-10-16, after studying claudexor)
+Diagnosis from a real request (T-004, Ctrl+C fix): the work was correct and merged, but into a `harness/integration` that was 15 milestones behind `main`, so it could not land and the person never saw it; the lead's follow-up (T-005) was built on the same stale base. Claudexor's model fixes exactly this: every turn starts from the project's current state, one agent does the turn in a persistent per-thread worktree resuming its native session, and the result is delivered to the project.
+
+- [ ] **M40 Delivery that reaches you** — the integration branch follows the base branch (fast-forward before every dispatch when nothing is unlanded); with `land: auto` every passing merge lands in your branch at once (fast-forward, or a merge commit on a clean checkout); a refused landing is reported, never silent.
+- [ ] **M41 Lanes** — one persistent worktree per agent (claudexor's "lane"): tasks switch branches inside it, so the agent's native session resumes across turns and it sees its own previous work.
+- [ ] **M42 Routing = pool + primary + goal** — a chat turn goes to one agent: the thread's sticky primary when it is eligible (signed in, not paused, has room), else the best pool member for the goal (`auto|quality|economy`). No automatic splitting; `/plan` splits on request.
+- [ ] **M43 Follow-ups continue** — a message after a finished turn continues the same agent session with the previous turn's result, instead of a cold new task.
+- [ ] **M44 Best-of race** — `/race` runs one request on two vendors in parallel, checks both, a third vendor reviews, the passing winner is delivered.
+
