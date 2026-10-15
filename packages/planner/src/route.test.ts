@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mentionedPaths, routeWork } from "./route.js";
+import { mentionedPaths, routeWork, titleOf } from "./route.js";
 import type { RoleInfo } from "./plan.js";
 
 const roles: RoleInfo[] = [
@@ -35,4 +35,10 @@ describe("routeWork", () => {
   it("finds paths in prose", () => {
     expect(mentionedPaths("see `src/ui/panel.tsx`, README.md and packages/tui/src/App.tsx.")).toEqual(["src/ui/panel.tsx", "README.md", "packages/tui/src/App.tsx"]);
   });
+
+  it("titles a chat message by its first sentence, cut at a word", () => {
+    expect(titleOf("Fix the login bug. It happens on Safari only.")).toBe("Fix the login bug");
+    expect(titleOf("Add server/price.js exporting formatPrice(cents) that returns a string like $12.50, with a node:test test in test/price.test.js")).toBe("Add server/price.js exporting formatPrice(cents) that returns a string…");
+  });
 });
+

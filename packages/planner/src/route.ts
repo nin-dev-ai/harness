@@ -80,3 +80,13 @@ export function sizeOfRequest(text: string): "S" | "M" | "L" {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   return words <= 40 ? "S" : words <= 250 ? "M" : "L";
 }
+
+/** A short task title from a chat message: its first sentence, cut at a word boundary. */
+export function titleOf(text: string, max = 72): string {
+  const first = text.trim().split("\n")[0]!.trim();
+  const sentence = /^(.+?[.!?])(\s|$)/.exec(first)?.[1] ?? first;
+  const t = sentence.length >= 12 ? sentence : first;
+  if (t.length <= max) return t.replace(/[.]$/, "");
+  const cut = t.slice(0, max - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max / 2)).replace(/[,;:\s]+$/, "")}…`;
+}
