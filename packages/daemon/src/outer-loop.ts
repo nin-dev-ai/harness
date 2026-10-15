@@ -200,6 +200,7 @@ export class ProjectEngine {
       }
       const role = cfg.roles[item.role]!;
       // The role's route is law; fallback routes only with `fallback: auto` (or `ask` + approval, see PolicyGuard).
+      if (role.pool.length) for (const g of this.guards) await g.refreshRoutes?.([role.route, ...role.pool]);
       const candidates = [...this.poolOrder(item, [role.route, ...role.pool]), ...(role.fallback !== "none" ? role.fallback_routes : [])];
       let chosen: string | undefined;
       let firstBlock: { reason: NonNullable<Task["blockedReason"]>; detail?: string } | undefined;
@@ -248,9 +249,9 @@ export class ProjectEngine {
     const now = this.p.clock.now();
     const left = (route: string) => {
       const ws = new Map(this.p.store.windows.list(this.p.id, route).map((w) => [w.kind, w]));
-      const room = (["5h", "7d"] as const).map((k) => {
+      const room = (["5h", "7d", "budget"] as const).map((k) => {
         const used = currentUsed(ws.get(k), now);
-        return used === null ? null : capPct(this.p.config, route, k) - used;
+        return used === null ? null : (k === "budget" ? 100 : capPct(this.p.config, route, k)) - used;
       }).filter((x): x is number => x !== null);
       // Unknown usage ranks in the middle: not preferred over known room, not starved either.
       return room.length ? Math.min(...room) : 50;

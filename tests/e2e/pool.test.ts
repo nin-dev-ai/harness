@@ -77,4 +77,32 @@ roles:
 `;
     expect(() => parseHarnessConfig(bad)).toThrow(/more than one route of vendor claude/);
   });
+
+  it("usage is per account: what one project learns about a vendor login informs another", async () => {
+    const cfg = (route: string) => `version: 1
+project: demo
+routes:
+  ${route}: { vendor: claude, auth: subscription }
+roles:
+  backend: { route: ${route}, paths_allow: ["src/server/**"] }
+`;
+    const account = new Map<string, UsageSnapshot[]>();
+    s = createScenario({ config: cfg("claude-sub") });
+    h = await startHarness(s, { clock: new FakeClock(T0) });
+    s.adapterFactory("claude-sub").setUsage("claude-sub", [{ ...usage("claude-sub", 84) }]);
+    const first = new QuotaGuard(h.project, { kick: () => undefined, account });
+    await first.refresh("claude-sub", true);
+    first.dispose();
+    expect(account.get("claude|subscription")?.map((x) => x.usedPct)).toEqual([84]);
+    await h.stop();
+    s.cleanup();
+
+    s = createScenario({ config: cfg("claude") });
+    h = await startHarness(s, { clock: new FakeClock(T0) });
+    const second = new QuotaGuard(h.project, { kick: () => undefined, account });
+    await second.refresh("claude", true);
+    second.dispose();
+    expect(h.project.store.windows.list(h.project.id, "claude").map((w) => [w.kind, w.usedPct, w.source])).toEqual([["5h", 84, "vendor"]]);
+  });
 });
+

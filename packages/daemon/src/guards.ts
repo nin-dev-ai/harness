@@ -32,6 +32,8 @@ export interface GateContext {
  */
 export interface Guard {
   name: string;
+  /** Bring usage for these routes up to date before the scheduler ranks a pool by headroom. */
+  refreshRoutes?(routes: string[]): Promise<void>;
   /** May this item be dispatched on this route now? */
   canDispatch?(ctx: DispatchContext): GuardDecision | Promise<GuardDecision>;
   /** Before checks run: may revert files and return synthetic failed checks. */

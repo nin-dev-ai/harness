@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { systemClock, type Clock, type HarnessEvent } from "@harness/core";
+import { systemClock, type Clock, type HarnessEvent, type UsageSnapshot } from "@harness/core";
 import { Store } from "@harness/storage";
 import { createAdapter } from "@harness/adapters";
 import { isGitRepo, repoRoot } from "@harness/workspace";
@@ -59,6 +59,8 @@ export class Daemon {
   readonly store: Store;
   readonly clock: Clock;
   readonly supervisor: Supervisor;
+  /** Usage is per account, not per project: the latest vendor windows per vendor and login, shared by every project. */
+  readonly accountUsage = new Map<string, UsageSnapshot[]>();
   readonly projects = new Map<string, ProjectRuntime>();
   private server?: RpcServer;
   private release?: () => void;

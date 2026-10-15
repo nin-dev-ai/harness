@@ -41,6 +41,8 @@ interface StartSnapshot {
 export interface QuotaGuardOptions {
   kick: () => void;
   rng?: () => number;
+  /** Account-level usage shared across projects (the daemon's), keyed by vendor and login. */
+  account?: Map<string, UsageSnapshot[]>;
 }
 
 /**
@@ -66,6 +68,21 @@ export class QuotaGuard implements Guard {
       const rs = p.store.windows.routeState(p.id, route);
       if (rs.pausedUntil) this.wakeAt(route, rs.pausedUntil);
     }
+    // Seed the account-level cache from what this project already knows, so it survives daemon restarts.
+    const now = this.now();
+    for (const [route, r] of Object.entries(p.config.routes)) {
+      if (!o.account || r.vendor === "fake") continue;
+      const key = `${r.vendor}|${r.auth}`;
+      const known = p.store.windows.list(p.id, route).filter((w) => w.source === "vendor" && w.kind !== "budget" && (!w.resetsAt || new Date(w.resetsAt) > now));
+      const have = o.account.get(key);
+      if (known.length && (!have || known[0]!.observedAt > (have[0]?.observedAt ?? ""))) {
+        o.account.set(key, known.map((w) => ({ route, window: w.kind as UsageSnapshot["window"], usedPct: w.usedPct, resetsAt: w.resetsAt, source: "vendor", observedAt: w.observedAt })));
+      }
+    }
+  }
+
+  async refreshRoutes(routes: string[]): Promise<void> {
+    for (const r of routes) await this.refresh(r);
   }
 
   private now(): Date {
@@ -88,6 +105,13 @@ export class QuotaGuard implements Guard {
       snaps = await this.p.adapter(route).usage(route);
     } catch {
       return;
+    }
+    const r = this.p.config.routes[route];
+    const key = r ? `${r.vendor}|${r.auth}` : undefined;
+    if (key && this.o.account && r!.vendor !== "fake") {
+      // What another project learned about this account counts here too.
+      if (snaps.some((x) => x.source === "vendor")) this.o.account.set(key, snaps.filter((x) => x.source === "vendor"));
+      else snaps = (this.o.account.get(key) ?? []).map((x) => ({ ...x, route }));
     }
     for (const s of snaps) this.record(route, { route, kind: s.window, usedPct: s.usedPct, resetsAt: s.resetsAt, source: s.source, observedAt: s.observedAt });
   }
