@@ -7,6 +7,7 @@ import { completions, parseInput } from "./commands.js";
 import { gradient } from "./theme.js";
 import { TuiStore, type TuiApi } from "./store.js";
 import { Stream } from "./components/Stream.js";
+import { BIG_BANNER, BIG_BANNER_WIDTH, SMALL_BANNER, XL_BANNER, XL_BANNER_WIDTH, pickBanner } from "./components/Logo.js";
 import { THEMES } from "./theme.js";
 
 const NOW = "2026-01-05T12:41:00.000Z";
@@ -60,17 +61,54 @@ async function type(ui: ReturnType<typeof render>, text: string) {
   ui.stdin.write(text);
   await flush();
 }
-async function setup() {
+async function setup(size = { columns: 140, rows: 36 }) {
   const f = fakeApi();
   const store = new TuiStore(f.api);
   await store.start();
   const onExit = vi.fn();
-  const ui = render(<App store={store} onExit={onExit} size={{ columns: 140, rows: 36 }} />);
+  const ui = render(<App store={store} onExit={onExit} size={size} />);
   await flush();
   return { ...f, store, ui, onExit };
 }
 
 describe("chat ui", () => {
+  it("renders the XL banner in a wide, tall terminal", async () => {
+    const { ui, store } = await setup({ columns: 200, rows: 60 });
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain(XL_BANNER[0]);
+    expect(frame.split("\n").filter((line) => line.includes(XL_BANNER[0]!))).toHaveLength(4);
+    expect(frame.split("\n").length).toBeLessThanOrEqual(60);
+    store.stop();
+  });
+
+  it("uses the big banner at the existing large terminal size", async () => {
+    const { ui, store } = await setup();
+    expect(ui.lastFrame()).toContain(BIG_BANNER[0]);
+    expect(ui.lastFrame()).not.toContain(XL_BANNER[0]);
+    store.stop();
+  });
+
+  it("uses the small banner in a narrow terminal", async () => {
+    const { ui, store } = await setup({ columns: 80, rows: 24 });
+    expect(ui.lastFrame()).toContain(SMALL_BANNER[0]);
+    expect(ui.lastFrame()).not.toContain(BIG_BANNER[0]);
+    store.stop();
+  });
+
+  it("hides the banner when HARNESS_BANNER is off", async () => {
+    const previous = process.env.HARNESS_BANNER;
+    process.env.HARNESS_BANNER = "off";
+    try {
+      const { ui, store } = await setup({ columns: 200, rows: 60 });
+      expect(ui.lastFrame()).not.toContain(SMALL_BANNER[0]);
+      expect(ui.lastFrame()).toContain("✦ harness");
+      store.stop();
+    } finally {
+      if (previous === undefined) delete process.env.HARNESS_BANNER;
+      else process.env.HARNESS_BANNER = previous;
+    }
+  });
+
   it("renders logo, usage pills, agent tabs, stream, files sidebar, chat bar and status line", async () => {
     const { ui, emit, store } = await setup();
     emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "tool_call", runId: "R-T-004-1", tool: "Bash", summary: "pnpm test watchlist" } } } as HarnessEvent);
@@ -176,6 +214,31 @@ describe("chat ui", () => {
 });
 
 describe("pieces", () => {
+  it("scales every XL row evenly and picks the largest fitting tier", () => {
+    expect(XL_BANNER).toHaveLength(12);
+    expect(new Set(XL_BANNER.map((row) => [...row].length))).toEqual(new Set([XL_BANNER_WIDTH]));
+    expect(XL_BANNER_WIDTH).toBe(BIG_BANNER_WIDTH * 2);
+    BIG_BANNER.forEach((row, index) => {
+      const doubled = [...row].map((ch) => ch.repeat(2)).join("");
+      expect(XL_BANNER[index * 2]).toBe(doubled);
+      expect(XL_BANNER[index * 2 + 1]).toBe(doubled);
+    });
+    expect(pickBanner(XL_BANNER_WIDTH + 2, 60)).toBe("xl");
+    expect(pickBanner(XL_BANNER_WIDTH + 1, 60)).toBe("big");
+    expect(pickBanner(200, 25)).toBe("xl");
+    expect(pickBanner(200, 24)).toBe("big");
+    expect(pickBanner(200, 19)).toBe("big");
+    expect(pickBanner(200, 18)).toBe("small");
+    expect(pickBanner(200, 16)).toBe("small");
+    expect(pickBanner(200, 15)).toBe("off");
+    expect(pickBanner(BIG_BANNER_WIDTH + 1, 60)).toBe("small");
+    expect(pickBanner(10, 60)).toBe("off");
+    expect(pickBanner(200, 60, "small")).toBe("small");
+    expect(pickBanner(80, 60, "xl")).toBe("small");
+    expect(pickBanner(200, 18, "big")).toBe("small");
+    expect(pickBanner(200, 60, "off")).toBe("off");
+  });
+
   it("parses input and completes commands", () => {
     expect(parseInput("hello")).toEqual({ kind: "message", text: "hello" });
     expect(parseInput("/rev T-4")).toEqual({ kind: "command", name: "review", args: "T-4", known: true });

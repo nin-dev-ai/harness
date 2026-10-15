@@ -7,7 +7,7 @@ import { completions, parseInput } from "./commands.js";
 import { AgentTabs } from "./components/AgentTabs.js";
 import { ChatBar } from "./components/ChatBar.js";
 import { Help } from "./components/Help.js";
-import { Banner, GradientText } from "./components/Logo.js";
+import { Banner, GradientText, pickBanner } from "./components/Logo.js";
 import { ReviewView, type ReviewData } from "./components/ReviewView.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { StatusLine } from "./components/StatusLine.js";
@@ -398,10 +398,16 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   const sideWidth = sidebar ? Math.max(32, Math.floor(columns * 0.32)) : 0;
   const mainWidth = columns - sideWidth - 1;
   const menuRows = Math.min(menu.length, 8);
-  const topRows = 3 + Math.ceil(snap.routes.length / 2);
   const bottomRows = 4 + menuRows + toasts.length;
-  const midRows = Math.max(6, rows - topRows - bottomRows);
   const entries = store.stream(view, currentTask);
+  const home = entries.length === 0 && overlay.kind === "none";
+  const baseHeaderRows = 3 + Math.ceil(snap.routes.length / 2);
+  // pickBanner's base layout reserves eight rows outside the stream. Adjust
+  // its height budget when wrapped routes, menus or toasts use more space.
+  const banner = pickBanner(columns, rows - (baseHeaderRows + bottomRows - 8), process.env.HARNESS_BANNER);
+  const bannerRows = home ? (banner === "xl" ? 12 : banner === "big" ? 6 : banner === "small" ? 3 : 0) : 0;
+  const headerRows = baseHeaderRows + bannerRows;
+  const midRows = Math.max(2, rows - headerRows - bottomRows);
   const placeholder =
     worker?.role === "planner"
       ? "describe what you want built: the planner turns it into tasks"
@@ -420,7 +426,6 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   );
   const empty = (
     <Box flexDirection="column" paddingTop={1}>
-      <Banner t={t} />
       <Text> </Text>
       {(store.local.get("_welcome") ?? []).map((w, i) => (
         <Text key={i} color={t.ok}>
@@ -480,6 +485,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   return (
     <Box flexDirection="column" width={columns}>
       {header}
+      {home ? <Box paddingX={1} flexDirection="column"><Banner t={t} tier={banner} /></Box> : null}
       <UsagePills routes={snap.routes} now={snap.now} t={t} />
       <AgentTabs workers={workers} selected={sel} frame={frame} t={t} />
       <Box flexDirection="row" height={midRows}>
