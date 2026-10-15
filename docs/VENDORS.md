@@ -30,3 +30,9 @@ Recorded 2026-10-14 on macOS from real runs. Fixtures live in `fixtures/<vendor>
 ## Unknowns
 - What Codex and Cursor print on a real usage limit (patterns are best-effort; `limitPattern` falls back to `rate_limit` with window `unknown`).
 - Whether Cursor exposes plan usage anywhere. Treated as `unknown` plus the manual budget.
+
+## Usage sources (recorded 2026-10-16)
+
+- **Codex 0.162.1 app-server.** `codex app-server` speaks JSON-RPC 2.0 over stdio: `initialize` (`clientInfo: {name, version}`), the `initialized` notification, then `account/rateLimits/read` (params `null`). The reply's `rateLimits.primary` / `.secondary` carry `usedPercent`, `windowDurationMins` (300 = 5h, 10080 = 7d) and `resetsAt` (unix seconds), plus `planType`. No model runs; no quota is spent. Recorded (account ids redacted) in `fixtures/codex/app-server-ratelimits.json`. The protocol also has `ConsumeAccountRateLimitResetCredit`; harness never calls it. Schema: `codex app-server generate-json-schema --out <dir>`.
+- **Claude Code 2.1.301.** `rate_limit_event` lines in stream-json still carry `unifiedWindows.five_hour` / `seven_day` with `utilization` (0–1) during live runs (seen at 0.84 / 0.58 on 2026-10-15). There is still no way to read usage without a run, so harness shares the latest reading across all projects on the same account.
+- **Cursor agent 2026.10.14.** No usage or token data in `-p` output. Use a manual budget (`harness limits set <route> --window budget --budget "40 runs/day"`).

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -84,4 +85,66 @@ export function readCodexUsage(threadId?: string, home = codexHome(), now = new 
     }
   }
   return [];
+}
+
+interface AppServerWindow {
+  usedPercent?: number;
+  windowDurationMins?: number;
+  resetsAt?: number;
+}
+
+/** `account/rateLimits/read` result (recorded in fixtures/codex/app-server-ratelimits.json) → window snapshots. */
+export function parseAppServerRateLimits(result: unknown, observedAt: string): UsageSnapshot[] {
+  const rl = (result as { rateLimits?: { primary?: AppServerWindow | null; secondary?: AppServerWindow | null } } | undefined)?.rateLimits;
+  if (!rl) return [];
+  const out: UsageSnapshot[] = [];
+  for (const w of [rl.primary, rl.secondary]) {
+    if (!w) continue;
+    const kind = w.windowDurationMins === 300 ? "5h" : w.windowDurationMins === 10080 ? "7d" : undefined;
+    if (!kind) continue;
+    out.push({ route: "", window: kind, usedPct: typeof w.usedPercent === "number" ? w.usedPercent : null, resetsAt: toIso(w.resetsAt) ?? null, source: "vendor", observedAt });
+  }
+  return out;
+}
+
+/**
+ * Ask Codex's app-server for the account's rate limits (JSON-RPC over stdio:
+ * initialize → initialized → account/rateLimits/read). It runs no model and
+ * spends no quota. Returns [] on any failure or after `timeoutMs`.
+ * Never calls the reset-credit methods.
+ */
+export function readCodexAppServerUsage(bin: string, env: NodeJS.ProcessEnv, timeoutMs = 8000, now = () => new Date()): Promise<UsageSnapshot[]> {
+  return new Promise((resolve) => {
+    let done = false;
+    let buf = "";
+    const child = spawn(bin, ["app-server"], { env, stdio: ["pipe", "pipe", "ignore"] });
+    const finish = (v: UsageSnapshot[]) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.kill();
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish([]), timeoutMs);
+    child.on("error", () => finish([]));
+    child.on("exit", () => finish([]));
+    child.stdout.on("data", (d: Buffer) => {
+      buf += d.toString("utf8");
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        try {
+          const msg = JSON.parse(line) as { id?: number; result?: unknown };
+          if (msg.id === 2) finish(parseAppServerRateLimits(msg.result, now().toISOString()));
+        } catch {
+          // not JSON: ignore
+        }
+      }
+    });
+    const send = (o: object) => child.stdin.write(`${JSON.stringify(o)}\n`);
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "harness", version: "0.1.0" } } });
+    send({ jsonrpc: "2.0", method: "initialized" });
+    send({ jsonrpc: "2.0", id: 2, method: "account/rateLimits/read", params: null });
+  });
 }

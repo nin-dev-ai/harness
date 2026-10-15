@@ -72,3 +72,21 @@ describe("codex parser (recorded fixtures)", () => {
     expect(new CodexAdapter().interactiveCommand("t1", "/x").argv.slice(-2)).toEqual(["resume", "t1"]);
   });
 });
+
+describe("codex app-server rate limits", () => {
+  it("reads 5h and weekly windows from the recorded account/rateLimits/read reply", async () => {
+    const fs = await import("node:fs");
+    const { parseAppServerRateLimits } = await import("./usage.js");
+    const rec = JSON.parse(fs.readFileSync(new URL("../../../../fixtures/codex/app-server-ratelimits.json", import.meta.url), "utf8")) as { response: { result: unknown } };
+    expect(parseAppServerRateLimits(rec.response.result, "2026-10-16T00:00:00.000Z")).toEqual([
+      { route: "", window: "5h", usedPct: 0, resetsAt: new Date(1792112848 * 1000).toISOString(), source: "vendor", observedAt: "2026-10-16T00:00:00.000Z" },
+      { route: "", window: "7d", usedPct: 8, resetsAt: new Date(1792650955 * 1000).toISOString(), source: "vendor", observedAt: "2026-10-16T00:00:00.000Z" },
+    ]);
+    expect(parseAppServerRateLimits({}, "x")).toEqual([]);
+  });
+
+  it("gives up quietly when the binary is missing", async () => {
+    const { readCodexAppServerUsage } = await import("./usage.js");
+    expect(await readCodexAppServerUsage("/nonexistent/codex", {}, 2000)).toEqual([]);
+  });
+});

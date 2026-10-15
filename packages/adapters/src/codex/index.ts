@@ -6,11 +6,11 @@ import type { DetectResult, RunRequest } from "../types.js";
 import { CliAdapter, type CliAdapterOptions } from "../cli-adapter.js";
 import type { LineParser } from "../process.js";
 import { CODEX_LIMIT_PATTERN, createCodexParser } from "./parse.js";
-import { codexHome, readCodexUsage } from "./usage.js";
+import { codexHome, readCodexAppServerUsage, readCodexUsage } from "./usage.js";
 import { CODEX_BINARIES, detectCodex } from "./detect.js";
 
 export { createCodexParser, parseRetryIn, CODEX_LIMIT_PATTERN } from "./parse.js";
-export { readCodexUsage, parseRolloutRateLimits } from "./usage.js";
+export { readCodexUsage, parseRolloutRateLimits, parseAppServerRateLimits, readCodexAppServerUsage } from "./usage.js";
 export { detectCodex } from "./detect.js";
 
 export interface CodexAdapterOptions extends CliAdapterOptions {
@@ -55,7 +55,20 @@ export class CodexAdapter extends CliAdapter {
     if (snaps.length) this.snapshots = snaps;
   }
 
+  private lastAppServerRead = 0;
+
+  /**
+   * Freshest source first: the app-server's account/rateLimits/read (exact,
+   * spends nothing; at most once a minute, only with the real CLI), then the
+   * session log of the last run.
+   */
   override async usage(route: string): Promise<UsageSnapshot[]> {
+    if (!this.opts.bin && Date.now() - this.lastAppServerRead > 60_000) {
+      this.lastAppServerRead = Date.now();
+      const env = this.codexOpts.home ? { ...process.env, CODEX_HOME: this.codexOpts.home } : process.env;
+      const live = await readCodexAppServerUsage(this.bin0(), env).catch(() => []);
+      if (live.length) this.snapshots = live;
+    }
     if (!this.snapshots.length) this.snapshots = readCodexUsage(undefined, this.codexOpts.home ?? codexHome());
     return super.usage(route);
   }
