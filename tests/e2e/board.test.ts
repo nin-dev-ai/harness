@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { notesIn, renderBoard } from "@harness/daemon";
+import { notesIn, relativize, renderBoard } from "@harness/daemon";
 import { approve, byMode, createScenario, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
 
 /** M18: one shared team board, rebuilt from events and carried in every prompt. */
@@ -11,6 +11,12 @@ describe("team board (HARNESS.md)", () => {
   afterEach(async () => {
     await h?.stop();
     s?.cleanup();
+  });
+
+  it("shows repo paths, not absolute worktree paths", () => {
+    const root = "/private/var/x/shop";
+    expect(relativize("Added [web/cart.js](/private/var/x/shop/.harness/worktrees/T-002/web/cart.js) and see /private/var/x/shop/.harness/worktrees/T-002/test/a.js", root)).toBe("Added web/cart.js and see test/a.js");
+    expect(relativize("keep [docs](https://example.com/x)", root)).toBe("keep [docs](https://example.com/x)");
   });
 
   it("reads NOTE: lines and renders a stable board", () => {

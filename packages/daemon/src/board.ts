@@ -52,6 +52,14 @@ export function notesIn(summary: string): string[] {
     .filter((x): x is string => !!x);
 }
 
+/** Agents write absolute worktree paths (often as Markdown links); the board shows repo paths. */
+export function relativize(text: string, root: string): string {
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const roots = [root, root.startsWith("/var/") ? `/private${root}` : root].map(esc).join("|");
+  const abs = new RegExp(`(?:${roots})/(?:\\.harness/worktrees/T-\\d+/)?`, "g");
+  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label: string, href: string) => (abs.test(href) ? ((abs.lastIndex = 0), label) : m)).replace(abs, "");
+}
+
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 const ACTIVE = new Set(["RUNNING", "GATING", "REPAIRING", "REVIEWING"]);
@@ -101,9 +109,9 @@ export function boardData(p: ProjectRuntime): BoardData {
     else if (e.type === "worker.assigned" && e.workerId && pl.role !== "reviewer") slot(e.taskId).agent = e.workerId;
     else if (e.type === "run.finished" && e.runId && IMPLEMENT.has(runs.get(e.runId)?.kind ?? "") && typeof pl.summary === "string" && pl.summary.trim()) {
       const s = slot(e.taskId);
-      s.summary = pl.summary.replace(/^\s*(?:[-*]\s*)?NOTE:.*$/gim, "").trim() || s.summary;
+      s.summary = relativize(pl.summary.replace(/^\s*(?:[-*]\s*)?NOTE:.*$/gim, ""), p.root).trim() || s.summary;
       s.vendor = runs.get(e.runId)!.vendor;
-      for (const n of notesIn(pl.summary)) notes.push({ taskId: e.taskId, agent: e.workerId ?? "", text: n });
+      for (const n of notesIn(pl.summary)) notes.push({ taskId: e.taskId, agent: e.workerId ?? "", text: relativize(n, p.root) });
     } else if (e.type === "branch.merged" && Array.isArray(pl.files)) slot(e.taskId).files = pl.files as string[];
     else if (e.type === "task.needs_human") slot(e.taskId).reason = String(pl.reason);
   }
