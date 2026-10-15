@@ -144,7 +144,8 @@ export class TuiStore {
       if (e.payload.followups.length) this.note("_team", "sys", `lead set ${e.payload.followups.length} follow-up${e.payload.followups.length === 1 ? "" : "s"}: ${e.payload.followups.join(", ")}`);
       return;
     }
-    if (e.type === "branch.merged") this.toast(`${e.taskId} merged into ${e.payload.into}`, "info");
+    if (e.type === "branch.merged") this.toast(`${e.taskId} merged into ${e.payload.into} · /land brings it into your branch`, "info");
+    else if (e.type === "integration.rebuilt") this.toast(`${e.payload.base} was rewritten: old agent work kept on ${e.payload.kept}`, "warn");
     else if (e.type === "task.needs_human") this.toast(`${e.taskId} needs you: ${e.payload.reason}`, "err");
     else if (e.type === "route.paused") this.toast(`${e.payload.route} paused${e.payload.until ? ` until ${new Date(e.payload.until).toTimeString().slice(0, 5)}` : ""}`, "warn");
     else if (e.type === "approval.requested") this.toast(`${e.payload.approvalId} waiting for you: ${e.payload.context}  (/approve ${e.payload.approvalId})`, "warn");

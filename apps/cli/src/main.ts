@@ -12,6 +12,7 @@ import * as config from "./commands/config.js";
 import * as doctor from "./commands/doctor.js";
 import * as exportCmd from "./commands/export.js";
 import * as init from "./commands/init.js";
+import * as land from "./commands/land.js";
 import * as limits from "./commands/limits.js";
 import * as logs from "./commands/logs.js";
 import * as pause from "./commands/pause.js";
@@ -43,7 +44,7 @@ export function buildProgram(io: Io): Command {
     .configureOutput({ writeOut: (s) => io.out(s.replace(/\n$/, "")), writeErr: (s) => io.err(s.replace(/\n$/, "")) })
     .showHelpAfterError();
   const ctx = makeCtx(io, program);
-  for (const m of [init, doctor, roles, routes, plan, task, approve, board, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config]) m.register(program, ctx);
+  for (const m of [init, doctor, roles, routes, plan, task, approve, board, land, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config]) m.register(program, ctx);
   program
     .command("setup")
     .description("Run the setup wizard: pick agents, tools, models and write scopes (rewrites harness.yaml)")

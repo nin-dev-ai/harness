@@ -187,6 +187,13 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         return setOverlay({ kind: "agents" });
       case "tasks":
         return setOverlay({ kind: "tasks" });
+      case "land": {
+        const r = await call<{ status: string; mode?: string; commits?: number; detail?: string; files?: string[]; into: string; from: string }>("land");
+        if (!r) return;
+        if (r.status === "landed") return noteTeam("ok", `landed ${r.commits} commit${r.commits === 1 ? "" : "s"} into ${r.into} (${r.mode})`);
+        if (r.status === "conflict") return noteTeam("warn", `landing would conflict in ${r.files?.join(", ")}; nothing changed. Merge ${r.from} by hand.`);
+        return noteTeam(r.status === "nothing" ? "sys" : "warn", r.detail ?? r.status);
+      }
       case "board": {
         const r = await call<{ text: string }>("board");
         if (r) {

@@ -22,6 +22,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "review", args: "[T-n]", desc: "checks, findings and files for a task" },
   { name: "diff", args: "[T-n]", desc: "full diff for a task" },
   { name: "accept", args: "[T-n]", desc: "merge a reviewed task into the integration branch" },
+  { name: "land", args: "", desc: "bring finished work from the integration branch into your branch" },
   { name: "reject", args: "<comment>", desc: "send the selected agent's task back" },
   { name: "cancel", args: "[T-n]", desc: "cancel a task" },
   { name: "limits", args: "<route> <5h|7d|budget> <value>", desc: "cap a window or set a manual budget" },

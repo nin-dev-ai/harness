@@ -130,3 +130,6 @@ The point of harness is to stretch several modest subscriptions (Claude, Codex, 
 
 ## 2026-10-15 · M22 Model tiers
 "Choose the right model" is per task size: a route may set `models: {S, M, L}`, and implementer runs use the tier for the task's size (reviews and missing sizes use `model`). Sizes come from the planner, or for chat work routed without planning, from request length (≤40 words S, ≤250 M, else L). Following AGENTS.md rule 3, no vendor model ids are built in; the user types them in setup (`S=…, M=…, L=…`) or harness.yaml.
+
+## 2026-10-15 · M23 Land (an exception to "writes only harness/**")
+Agents' merged work sat on `harness/integration` and never reached the person's branch, so they did not see results (and after a history rewrite of `main`, the integration branch shared no history with it at all). `harness land` / `/land` is the one write outside `harness/**`, and it runs only when the person asks: fast-forward when possible; a merge commit when the base moved on and is checked out and clean; a fast-forward-only update when the base is not checked out; conflicts aborted and listed. No history is rewritten. On project open, an integration branch with no merge base is renamed `harness/integration-orphaned-<stamp>` (kept, never deleted) and rebuilt from the base before work starts.
