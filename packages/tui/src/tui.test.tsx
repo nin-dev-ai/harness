@@ -105,6 +105,15 @@ describe("chat with your team", () => {
     store.stop();
   });
 
+  it("the lead's status and follow-ups appear in the team chat", async () => {
+    const { ui, emit, store } = await setup(undefined, 150, 40);
+    emit({ ts: NOW, projectId: "p", type: "lead.reported", taskId: null, workerId: null, runId: null, payload: { status: "Feed done; the page still lacks an error state.", followups: ["T-011"], round: 0, done: false } } as unknown as HarnessEvent);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ui.lastFrame()).toContain("lead: Feed done; the page still lacks an error state.");
+    expect(ui.lastFrame()).toContain("lead set 1 follow-up: T-011");
+    store.stop();
+  });
+
   it("while agents work, home shows one calm line per working agent; /agents and /usage give the detail", async () => {
     const { ui, emit, store } = await setup(undefined, 150, 30);
     emit(ev("run.event", "T-005", "backend-1", { event: { type: "message", runId: "R-T-005-1", text: "Writing the quote feed adapter" } }));
@@ -320,9 +329,9 @@ describe("setup wizard", () => {
     expect(ui.lastFrame()).toContain("[x] fullstack");
     ui.stdin.write("\r");
     await flush();
-    expect(ui.lastFrame()).toContain("agent 1 of 5: backend");
+    expect(ui.lastFrame()).toContain("agent 1 of 6: backend");
     expect(ui.lastFrame()).toContain("src/server/**");
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       ui.stdin.write("\r");
       await flush();
     }
@@ -336,6 +345,7 @@ describe("setup wizard", () => {
       ["fullstack", "claude", "write"],
       ["reviewer", "codex", "readonly"],
       ["planner", "claude", "readonly"],
+      ["lead", "claude", "readonly"],
     ]);
     expect(r[2]).toMatchObject({ pathsAllow: ["src/**"] });
   });

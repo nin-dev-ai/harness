@@ -138,6 +138,12 @@ export class TuiStore {
         void this.loadDetail(e.taskId);
       }
     }
+    if (e.type === "lead.reported") {
+      // The lead speaks in the team chat.
+      this.note("_team", "say", `lead: ${e.payload.status}`);
+      if (e.payload.followups.length) this.note("_team", "sys", `lead set ${e.payload.followups.length} follow-up${e.payload.followups.length === 1 ? "" : "s"}: ${e.payload.followups.join(", ")}`);
+      return;
+    }
     if (e.type === "branch.merged") this.toast(`${e.taskId} merged into ${e.payload.into}`, "info");
     else if (e.type === "task.needs_human") this.toast(`${e.taskId} needs you: ${e.payload.reason}`, "err");
     else if (e.type === "route.paused") this.toast(`${e.payload.route} paused${e.payload.until ? ` until ${new Date(e.payload.until).toTimeString().slice(0, 5)}` : ""}`, "warn");

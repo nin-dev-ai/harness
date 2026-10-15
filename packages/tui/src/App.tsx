@@ -90,7 +90,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   }, [welcome, store]);
 
   const workers: WorkerView[] = useMemo(() => {
-    const rank = (w: WorkerView) => (w.role === "planner" ? 2 : w.role === "reviewer" ? 1 : 0);
+    const rank = (w: WorkerView) => (w.role === "lead" ? 3 : w.role === "planner" ? 2 : w.role === "reviewer" ? 1 : 0);
     return [...(snap?.workers ?? [])].sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
   }, [snap]);
   const tasks = snap?.tasks ?? [];
@@ -156,7 +156,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
 
   /** Chat to one agent: a running agent gets a note; an idle one gets a new task. */
   async function toAgent(w: WorkerView, text: string) {
-    if (w.role === "planner") return toTeam(text);
+    if (w.role === "planner" || w.role === "lead") return toTeam(text);
     if (w.role === "reviewer") return store.note(w.id, "sys", "the reviewer checks work automatically once its checks pass");
     const task = paneTask(w);
     store.note(w.id, "you", text);
@@ -468,11 +468,11 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         statusColor={st.color}
         busy={w.state === "RUNNING"}
         frame={frame}
-        subtitle={task ? `${task.id} ${task.title}${live ? "" : ` · ${task.state.toLowerCase().replace("_", " ")}`}` : w.role === "reviewer" ? "reviews tasks when their checks pass" : w.role === "planner" ? "splits your messages across agents" : `waiting for work`}
+        subtitle={task ? `${task.id} ${task.title}${live ? "" : ` · ${task.state.toLowerCase().replace("_", " ")}`}` : w.role === "reviewer" ? "reviews tasks when their checks pass" : w.role === "planner" ? "splits your messages across agents" : w.role === "lead" ? "checks each finished round and sets follow-ups" : `waiting for work`}
         meta={task ? `${w.elapsedMs !== null ? `${duration(w.elapsedMs)} · ` : ""}${files.length ? `${files.length} file${files.length === 1 ? "" : "s"} +${ins} -${del}` : "no changes"}${ctx ? ` · ${fmtTokens(ctx)} ctx` : ""}` : ""}
         entries={store.stream(w.id, task?.id)}
         extra={extra}
-        idleHint={w.role === "reviewer" || w.role === "planner" ? "" : "type here after Tab, or message the team"}
+        idleHint={w.role === "reviewer" || w.role === "planner" || w.role === "lead" ? "" : "type here after Tab, or message the team"}
         width={width}
         height={height}
         focused={focused}

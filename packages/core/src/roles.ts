@@ -11,6 +11,7 @@ export const ROLE_GUIDES: Record<string, string> = {
   docs: "README, docs and code comments. Never changes code.",
   reviewer: "Reviews every change against its acceptance criteria. Never edits files.",
   planner: "Splits a request into small tasks for the team and assigns each to the agent whose job it is.",
+  lead: "Watches the whole team through the board, checks each finished round against the request, and sets small follow-up jobs.",
 };
 
 /** A role's instructions, or the built-in guide for a well-known role name. */

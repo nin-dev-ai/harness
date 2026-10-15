@@ -44,6 +44,7 @@ const PRESETS: Preset[] = [
   { role: "docs", mode: "write", on: false, about: "docs and READMEs" },
   { role: "reviewer", mode: "readonly", on: true, about: "reviews every change, never edits" },
   { role: "planner", mode: "readonly", on: true, about: "splits a spec into tasks" },
+  { role: "lead", mode: "readonly", on: true, about: "checks each round of work and sets follow-ups" },
 ];
 
 const SCOPE_HINTS: Record<string, RegExp> = {
@@ -100,7 +101,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
         const used = new Set(writers.map((_, i) => usable[i % usable.length]));
         vendor = usable.find((v) => !used.has(v)) ?? usable[usable.length - 1]!;
       }
-      if (p.role === "planner") vendor = usable.includes("claude") ? "claude" : usable[0]!;
+      if (p.role === "planner" || p.role === "lead") vendor = usable.includes("claude") ? "claude" : usable[0]!;
       return { role: p.role, mode: p.mode, vendor, model: "", scope: p.mode === "write" ? suggestScope(p.role, folders) : "", count: 1 };
     });
   };
