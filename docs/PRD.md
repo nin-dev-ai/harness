@@ -8,7 +8,7 @@ Oct 14, 2026 · @Nigel
 
 It knows each plan's usage windows and reset times, so it can *burst*: send queued work while a window still has headroom, pause cleanly when a limit hits, and resume when the window resets. The loop that decides whether work is done (run, verify, repair, review) is built into the tool, but the signal it relies on, your tests and checks, lives in the target repo.
 
-**What the tool does, in one paragraph.** You run `harness` inside a git repo. It scans the repo, checks that it has runnable checks, and opens a full-screen terminal UI. You define roles in `harness.yaml` (for example `frontend: codex`, `backend: claude`, `reviewer: cursor`). You add tasks by hand, or ask a planner agent to split a PRD into tasks and propose roles. The daemon assigns each ready task to a worker for its role, creates a worktree and branch, and launches the vendor CLI headless with structured output. A verification step then runs your checks independently of the agent. Failures go back to the same agent session as a bounded repair loop. Passing work is reviewed read-only and merged into a local integration branch. Nothing touches `main`.
+**What the tool does, in one paragraph.** You run `harness` inside a git repo. It scans the repo, checks that it has runnable checks, and opens a full-screen terminal UI. You define roles in `harness.yaml` (for example `frontend: codex`, `backend: claude`, `reviewer: cursor`). A chat request goes to one primary writing agent, which may delegate bounded independent jobs; explicit `plan` still creates draft tasks. The daemon creates isolated task branches and worktrees, runs vendor CLIs through subscription routes, verifies work independently, and repairs failures in bounded loops. Passing work is reviewed, merged into integration, and with `land: auto` delivered to the project's base branch. The event log records routing, continuity, delegation and delivery.
 
 **Working name:** `harness`. Use a neutral name in public; vendor names and logos stay out of the product name.
 
@@ -901,6 +901,20 @@ The user can run several vendors side by side, each on their own plan or API key
 | M13 | **Terminal UI.** Ink app: Usage, Workers, Tasks, Output, Review, Limits editor, keybindings, attach and takeover | `tui` | Snapshot tests of each panel; attach and takeover e2e with the fake adapter |
 | M14 | **GitHub.** `harness pr` through `gh`, evidence block | `github` | PR body generated from fixtures; the tool never calls merge |
 | M15 | **Harden and document.** Install script, README quick start, an end-to-end demo script on a sample repo with the fake adapter, a live demo with one real vendor | all | A clean checkout installs and reaches a first merged task in under 30 minutes, following only the README |
+
+### Phase 3 build plan: a request reaches the project
+
+These milestones supersede earlier MVP text that assumes manual landing or automatic chat planning. The original M0–M15 remain the foundation. The precise tradeoffs are recorded in `docs/DECISIONS.md`.
+
+| # | Milestone | Done when |
+| --- | --- | --- |
+| M40 | **Delivery.** Sync integration before new work, land verified merges automatically by default, and reconcile delivery from git ancestry. | A fake-adapter scenario proves a merged task appears on the base; dirty or conflicting bases remain untouched and show a visible blocker. Dependencies wait until their commits are delivered. |
+| M41 | **Conversation continuity.** Store threads and turns as events; make a new task for each finished turn while keeping one primary role. | Same-route follow-up resumes the native session; cross-route follow-up includes at most 8,000 characters of event-derived handoff. The current files remain authoritative. |
+| M42 | **Three subscription routes.** A writing role may pool Claude, Codex and Cursor subscriptions. Prefer a viable prior route, otherwise use measured headroom; do not silently send to a signed-out or missing CLI. | Fake adapters prove fallback and typed blockers. Every choice records `route.selected`; usage remains per login and unknown is never shown as zero. Cursor gets a manual budget where its CLI exposes no quota. |
+| M43 | **Primary with bounded delegation.** The agent may emit one schema-validated `DELEGATE` JSON line. The daemon admits at most three independent jobs in a wave and eight total, prevents file overlap and nested delegation, and resumes the parent only after children pass and reach the base. | Fake scenarios cover successful children, overlap refusal, child failure, cancellation and restart. Every state transition and decision is an event. |
+| M44 | **Recover and verify.** Port the historical alternate-screen fix onto current main; close the stranded follow-up; run the full gate and an opt-in real subscription request. | `typecheck`, `lint`, `build`, tests and a controlled live run pass; the base contains the verified change and `task.delivered` exists. |
+
+The release path favors a single primary attempt and failure-triggered escalation. A multi-vendor best-of race remains an opt-in future experiment because it multiplies quota use before an objective failure is known.
 
 **Rules while building**
 

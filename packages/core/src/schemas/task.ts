@@ -30,6 +30,8 @@ export const BlockedReasonSchema = z.enum([
   "dependencies",
   "file_overlap",
   "approval",
+  "auth",
+  "cli_missing",
 ]);
 export type BlockedReason = z.infer<typeof BlockedReasonSchema>;
 

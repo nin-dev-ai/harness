@@ -123,7 +123,7 @@ describe("dispatch (chat to the team)", () => {
     s2.cleanup();
   });
 
-  it("splits one message across agents, approves, and starts them", async () => {
+  it("explicit planning splits one message across agents", async () => {
     s2 = createScenario({ config: CONFIG });
     h2 = await startHarness(s2);
     s2.scripts.set("PLAN", plan([
@@ -132,9 +132,12 @@ describe("dispatch (chat to the team)", () => {
     ]));
     s2.scripts.set("T-001", byMode(writes({ "src/server/feed.ts": "x\n" })));
     s2.scripts.set("T-002", byMode(writes({ "src/ui/panel.ts": "y\n" })));
-    const call = h2.daemon.handlers().dispatch!;
-    const r = (await call({ projectId: h2.project.id, document: "Live quotes with a watchlist", attended: true }, { attended: true, subscribe: () => () => undefined })) as { tasks: { id: string; role: string }[] };
+    const r = await new Planner(h2.project, h2.daemon.supervisor).plan("Live quotes with a watchlist", "chat", { chat: true });
     expect(r.tasks.map((x) => [x.id, x.role])).toEqual([["T-001", "backend"], ["T-002", "frontend"]]);
+    h2.plugin.approve(h2.project, r.tasks.map((x) => x.id));
+    h2.engine.start();
+    await h2.until("T-001", "MERGED");
+    await h2.engine.idle();
     await h2.until("T-002", "MERGED");
     expect(s2.repo.git("log", "--format=%s", "main..harness/integration").split("\n")).toEqual(["T-002: Watchlist", "T-001: Quote feed"]);
   });
@@ -162,7 +165,7 @@ describe("dispatch (chat to the team)", () => {
     const ctx = { attended: true, subscribe: () => () => undefined };
     const r = (await call.dispatch!({ projectId: h2.project.id, document: "Fix the 500 in src/server/feed.ts when the quotes API gets an empty symbol" }, ctx)) as { summary: string; tasks: { id: string; role: string }[] };
     expect(r.tasks.map((x) => x.role)).toEqual(["backend"]);
-    expect(r.summary).toContain("backend takes this");
+    expect(r.summary).toContain("backend owns this request");
     expect((s2.adapters.get("rev")?.requests ?? []).filter((q) => q.runId.startsWith("R-PLAN"))).toHaveLength(0);
     const t = (await call["task.add"]!({ projectId: h2.project.id, title: "Restyle the watchlist page layout" }, ctx)) as { role: string };
     expect(t.role).toBe("frontend");

@@ -3,6 +3,7 @@ import type { ProjectRuntime } from "./project.js";
 import type { Supervisor } from "./supervisor.js";
 import { boardData, boardForPrompt, projectFacts } from "./board.js";
 import { pickRole, roleInfos } from "./planning.js";
+import { taskDelivery } from "./delivery.js";
 
 /** A batch of work the lead looks at once it settles: one chat request, or one round of the lead's own follow-ups. */
 export interface Batch {
@@ -60,6 +61,7 @@ export class Lead {
     const waitsForPerson = this.p.config.policy.autonomy !== "approved-scope";
     const settled = (id: string) => {
       const st = tasks.get(id)?.state ?? "CANCELLED";
+      if (st === "MERGED" && this.p.config.land === "auto") return taskDelivery(this.p, id) === "delivered";
       return SETTLED.has(st) || (waitsForPerson && st === "PR_READY");
     };
     return this.batches().find((b) => !b.reported && b.taskIds.length > 0 && b.taskIds.every(settled));

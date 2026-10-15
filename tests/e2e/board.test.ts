@@ -25,7 +25,7 @@ describe("team board (HARNESS.md)", () => {
       project: "demo", updatedAt: "2026-10-15T10:00:00.000Z",
       requests: [{ ts: "t", text: "Live quotes with a watchlist" }],
       tasks: [
-        { id: "T-001", title: "Quote feed", role: "backend", state: "MERGED", dependsOn: [], agent: "backend-1", vendor: "claude", summary: "Added the feed", files: ["src/server/feed.ts"] },
+        { id: "T-001", title: "Quote feed", role: "backend", state: "MERGED", delivery: "delivered", dependsOn: [], agent: "backend-1", vendor: "claude", summary: "Added the feed", files: ["src/server/feed.ts"] },
         { id: "T-002", title: "Watchlist", role: "frontend", state: "RUNNING", dependsOn: ["T-001"], agent: "frontend-1", vendor: "codex" },
       ],
       notes: [{ taskId: "T-001", agent: "backend-1", text: "GET /api/quotes" }],

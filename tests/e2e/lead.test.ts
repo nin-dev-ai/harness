@@ -15,7 +15,7 @@ describe("lead (compiler) agent", () => {
   });
 
   it("reviews a settled request, sets a follow-up, then stops at the round limit", async () => {
-    s = createScenario({ config: CONFIG });
+    s = createScenario({ config: CONFIG.replace("land: manual", "land: auto") });
     h = await startHarness(s);
     let leadRuns = 0;
     s.scripts.set("LEAD", () =>

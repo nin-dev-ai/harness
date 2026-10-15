@@ -23,11 +23,12 @@ describe("land", () => {
     expect(r).toMatchObject({ status: "landed", mode: "fast-forward", commits: 1, into: "main" });
     expect(s.repo.git("ls-tree", "-r", "--name-only", "main")).toContain("src/server/feed.ts");
     expect(h.project.store.events.list({ projectId: h.project.id, types: ["integration.landed"] })).toHaveLength(1);
+    expect(h.project.store.events.list({ projectId: h.project.id, taskId: t.id, types: ["task.delivered"] })).toHaveLength(1);
     expect(await h.daemon.handlers().land!({ projectId: h.project.id }, ctx)).toMatchObject({ status: "nothing" });
   });
 
   it("land: auto delivers each passing merge, and new work starts from the current base", async () => {
-    s = createScenario({ config: (await import("../helpers/scenario.js")).DEFAULT_CONFIG + "land: auto\n" });
+    s = createScenario({ config: (await import("../helpers/scenario.js")).DEFAULT_CONFIG.replace("land: manual", "land: auto") });
     h = await startHarness(s);
     // The person commits to main after the integration branch was created.
     s.repo.write("src/server/theirs.ts", "mine\n");
@@ -41,6 +42,23 @@ describe("land", () => {
     expect(files).toContain("src/server/feed.ts");
     expect(files).toContain("src/server/theirs.ts");
     expect(h.project.store.events.list({ projectId: h.project.id, types: ["integration.landed"] }).map((e) => e.type)).toEqual(["integration.landed"]);
+    expect(h.project.store.events.list({ projectId: h.project.id, taskId: t.id, types: ["task.delivered"] })).toHaveLength(1);
+  });
+
+  it("keeps a dirty base untouched and exposes the delivery blocker", async () => {
+    s = createScenario({ config: (await import("../helpers/scenario.js")).DEFAULT_CONFIG.replace("land: manual", "land: auto") });
+    h = await startHarness(s);
+    s.repo.write("README.md", "my unfinished edit\n");
+    s.scripts.set("T-001", byMode(writes({ "src/server/feed.ts": "feed\n" })));
+    const t = h.project.createTask({ title: "Feed", role: "backend", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    await h.engine.idle();
+    expect(s.repo.git("show", "main:README.md")).not.toContain("my unfinished edit");
+    expect(s.repo.git("ls-tree", "-r", "--name-only", "main")).not.toContain("src/server/feed.ts");
+    expect(h.project.store.events.list({ projectId: h.project.id, taskId: t.id, types: ["land.blocked"] })).toHaveLength(1);
+    const status = await h.daemon.handlers().status!({ projectId: h.project.id }, { attended: true, subscribe: () => () => undefined }) as { tasks: { id: string; delivery: string }[] };
+    expect(status.tasks.find((x) => x.id === t.id)?.delivery).toBe("blocked");
   });
 });
 

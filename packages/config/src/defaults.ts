@@ -44,7 +44,8 @@ export function starterConfig(project: string, vendors: Vendor[]): string {
   const reviewer = has("cursor") ? "cursor" : has("codex") && first !== "codex-sub" ? "codex-sub" : first;
   return `version: 1
 project: ${project}
-integration_branch: harness/integration   # task branches merge here, never into main
+integration_branch: harness/integration   # task branches merge here, then verified work lands in base_branch
+land: auto
 base_branch: main
 
 routes:
@@ -141,7 +142,8 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
   return `# Made by the harness setup wizard. Edit freely; \`harness config check\` validates it.
 version: 1
 project: ${project}
-integration_branch: harness/integration   # task branches merge here, never into main
+integration_branch: harness/integration   # task branches merge here, then verified work lands in base_branch
+land: auto
 base_branch: main
 
 routes:

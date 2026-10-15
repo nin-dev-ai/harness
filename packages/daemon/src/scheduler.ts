@@ -17,10 +17,12 @@ export interface SelectionInput {
   /** Tasks with a live run (any kind). */
   live: ReadonlySet<string>;
   /** Pause cause for PAUSED tasks: "limit" resumes automatically, "user" waits for `resume`. */
-  pauseCause: (taskId: string) => "limit" | "user" | undefined;
+  pauseCause: (taskId: string) => "limit" | "delegation" | "user" | undefined;
   /** files_hint per task, for overlap checks. */
   filesHint: (taskId: string) => readonly string[];
   reviewerRole: string | undefined;
+  /** In automatic delivery mode, a dependency must also be in the base branch. */
+  delivered?: (taskId: string) => boolean;
   /** Optional filters from `harness run --role/--task`. */
   onlyRole?: string | undefined;
   onlyTask?: string | undefined;
@@ -76,7 +78,7 @@ export function selectWork(i: SelectionInput): WorkItem[] {
     if (t.state === "PAUSED" && i.pauseCause(t.id) === "limit") inflight.push({ task: t, kind: "resume", role: t.role });
     else if (t.state === "REPAIRING") inflight.push({ task: t, kind: "repair", role: t.role });
     else if (t.state === "REVIEWING" && i.reviewerRole) inflight.push({ task: t, kind: "review", role: i.reviewerRole });
-    else if (t.state === "QUEUED" && depsMerged(t, byId)) queued.push({ task: t, kind: "implement", role: t.role });
+    else if (t.state === "QUEUED" && depsMerged(t, byId) && (!i.delivered || t.dependsOn.every(i.delivered))) queued.push({ task: t, kind: "implement", role: t.role });
   }
   const order = (a: WorkItem, b: WorkItem) =>
     (depth.get(b.task.id) ?? 0) - (depth.get(a.task.id) ?? 0) ||

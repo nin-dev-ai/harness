@@ -60,7 +60,7 @@ function statusOf(w: WorkerView): { label: string; color?: string | undefined } 
 
 /**
  * Chat with your team. One pane per agent shows its live session; the chat
- * bar sends your message to the whole team (the planner splits it) or, after
+ * bar sends your message to the primary agent or, after
  * Tab, straight to one agent.
  */
 export function App({ store, onExit, size, theme: themeName, onTheme, welcome, version = "0.1.0", openWindows }: AppProps) {
@@ -144,12 +144,12 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
     }
   };
 
-  /** Chat to the whole team: split across agents and start. */
+  /** Chat to the primary agent; it may delegate independent jobs. */
   async function toTeam(text: string) {
     noteTeam("you", text);
-    noteTeam("sys", "picking the right agents for this…");
+    noteTeam("sys", "finding the primary agent for this…");
     const r = await call<{ summary: string; tasks: { id: string; title: string; role: string; dependsOn: string[] }[] }>("dispatch", { document: text, source: "chat" });
-    store.local.set(viewKey, (store.local.get(viewKey) ?? []).filter((e) => !e.text.startsWith("picking the right agents")));
+    store.local.set(viewKey, (store.local.get(viewKey) ?? []).filter((e) => !e.text.startsWith("finding the primary agent")));
     if (!r) return;
     if (r.summary) noteTeam("say", r.summary);
     for (const x of r.tasks) noteTeam("sys", `→ ${x.role}: ${x.title}${x.dependsOn.length ? ` (after ${x.dependsOn.join(", ")})` : ""}`);
@@ -362,13 +362,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   };
 
   useInput((ch, key) => {
-    if (key.ctrl && ch === "c") {
-      if (input) {
-        setInput("");
-        setCursor(0);
-      } else quit({ action: "quit" });
-      return;
-    }
+    if (key.ctrl && ch === "c") return quit({ action: "quit" });
     if (key.ctrl && ch === "d") return quit({ action: "quit" });
     if (key.escape) {
       if (overlay.kind !== "none") return setOverlay({ kind: "none" });
@@ -492,7 +486,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         statusColor={st.color}
         busy={w.state === "RUNNING"}
         frame={frame}
-        subtitle={task ? `${task.id} ${task.title}${live ? "" : ` · ${task.state.toLowerCase().replace("_", " ")}`}` : w.role === "reviewer" ? "reviews tasks when their checks pass" : w.role === "planner" ? "splits your messages across agents" : w.role === "lead" ? "checks each finished round and sets follow-ups" : `waiting for work`}
+        subtitle={task ? `${task.id} ${task.title}${live ? "" : ` · ${task.state.toLowerCase().replace("_", " ")}`}` : w.role === "reviewer" ? "reviews tasks when their checks pass" : w.role === "planner" ? "splits explicit /plan requests" : w.role === "lead" ? "checks each finished round and sets follow-ups" : `waiting for work`}
         meta={task ? `${w.elapsedMs !== null ? `${duration(w.elapsedMs)} · ` : ""}${files.length ? `${files.length} file${files.length === 1 ? "" : "s"} +${ins} -${del}` : "no changes"}${ctx ? ` · ${fmtTokens(ctx)} ctx` : ""}` : ""}
         entries={store.stream(w.id, task?.id)}
         extra={extra}

@@ -115,6 +115,10 @@ export class FakeAdapter implements AgentAdapter {
     this.snapshots[route] = snapshots;
   }
 
+  setDetect(result: DetectResult): void {
+    this.detectResult = result;
+  }
+
   async detect(): Promise<DetectResult> {
     return this.detectResult;
   }

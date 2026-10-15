@@ -14,6 +14,7 @@ export interface ScenarioOptions {
 
 export const DEFAULT_CONFIG = `version: 1
 project: demo
+land: manual
 routes:
   fast:
     vendor: fake

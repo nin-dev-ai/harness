@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { HarnessError, type Task, type TaskSize } from "@harness/core";
+import { HarnessError, type TaskSize } from "@harness/core";
 import { editHarnessConfig, findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
 import { changedFiles, diffSummary, diffText, landIntegration, rebuildOrphanedIntegration, unlandedCount } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
@@ -16,6 +16,8 @@ import { BOARD_FILE, boardData, projectFacts, renderBoard } from "./board.js";
 import { Lead } from "./lead.js";
 import { qualityLedger, renderReport, requestReport } from "./report.js";
 import { suggestRoutes } from "./suggest.js";
+import { reconcileDelivery } from "./delivery.js";
+import { threadStatuses, threadTurns } from "./threads.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
 const parse = <T extends z.ZodTypeAny>(schema: T, params: unknown): z.infer<T> => {
@@ -64,6 +66,7 @@ export class EnginePlugin implements DaemonPlugin {
     // A base branch with rewritten history leaves the integration branch unlandable: keep it, start fresh.
     void rebuildOrphanedIntegration(p.root, p.config.integration_branch, p.config.base_branch, p.now())
       .then((kept) => kept && p.emit("integration.rebuilt", { kept, base: p.config.base_branch }))
+      .then(() => reconcileDelivery(p))
       .catch(() => undefined)
       .finally(() => e.kick()); // work starts only after the branch is sound
     // The lead looks at each batch of team work once it settles.
@@ -76,7 +79,7 @@ export class EnginePlugin implements DaemonPlugin {
     const settle = new Set(["MERGED", "PR_READY", "NEEDS_HUMAN", "CANCELLED"]);
     this.unsubscribers.push(
       p.store.subscribe((ev) => {
-        if (ev.projectId === p.id && ev.type === "task.state_changed" && settle.has(ev.payload.to)) void lead.check().catch(() => undefined);
+        if (ev.projectId === p.id && ((ev.type === "task.state_changed" && settle.has(ev.payload.to)) || ev.type === "task.delivered")) void lead.check().catch(() => undefined);
       }),
     );
   }
@@ -125,6 +128,7 @@ export class EnginePlugin implements DaemonPlugin {
         const { p, e } = ctxProject(params, ctx.attended);
         return snapshot(p, e);
       },
+      "thread.status": (params, ctx) => threadStatuses(ctxProject(params, ctx.attended).p),
       "task.add": (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
         const a = parse(
@@ -314,32 +318,31 @@ export class EnginePlugin implements DaemonPlugin {
         const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("(inline)") }), params);
         return new Planner(p, d.supervisor).plan(a.document, a.source);
       },
-      /**
-       * Chat to the team: the planner splits a message into one mini prompt
-       * per agent, the new tasks are approved, and the scheduler starts them.
-       */
+      /** A chat turn belongs to one durable conversation and one primary writer. */
       dispatch: async (params, ctx) => {
         const { p, e } = ctxProject(params, ctx.attended);
-        const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("chat") }), params);
-        let created: Task[];
-        let summary = "";
-        const picked = pickRole(p, a.document);
-        if (picked.sure || !p.config.roles.planner) {
-          // One agent's job (or no planner to ask): start it now, no planning run.
-          const t = p.createTask({ title: titleOf(a.document), role: picked.role, body: a.document, size: sizeOfRequest(a.document) });
-          p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
-          created = [t];
-          summary = `${picked.role} takes this (${picked.reason})`;
-        } else {
-          const r = await new Planner(p, d.supervisor).plan(a.document, a.source, { chat: true });
-          created = r.tasks;
-          summary = r.summary;
+        const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("chat"), newThread: z.boolean().default(false) }), params);
+        const earlier = a.newThread ? undefined : threadTurns(p).at(-1);
+        if (earlier) {
+          const existing = p.task(earlier.taskId);
+          if (!["MERGED", "CANCELLED"].includes(existing.state)) {
+            const note = await e.message(existing.id, a.document);
+            return { summary: `Continuing ${earlier.threadId} with ${existing.role} (${note.delivery})`, threadId: earlier.threadId, tasks: [{ id: existing.id, title: existing.title, role: existing.role, dependsOn: existing.dependsOn }] };
+          }
         }
-        p.emit("team.request", { text: a.document, taskIds: created.map((t) => t.id) });
-        this.approve(p, created.map((t) => t.id));
+        const picked = pickRole(p, a.document);
+        const previous = earlier && p.task(earlier.taskId).state === "MERGED" ? earlier.taskId : undefined;
+        const role = previous ? p.task(previous).role : picked.role;
+        const threadId = earlier?.threadId ?? `C-${p.store.events.lastSeq() + 1}`;
+        if (!earlier) p.emit("thread.started", { threadId, primaryRole: role });
+        const t = p.createTask({ title: titleOf(a.document), role, body: a.document, size: sizeOfRequest(a.document), ...(previous ? { dependsOn: [previous] } : {}) });
+        p.emit("thread.turn", { threadId, text: a.document, taskId: t.id, ...(previous ? { previousTaskId: previous } : {}) }, { taskId: t.id });
+        p.emit("task.routed", { role, reason: previous ? `sticky primary for ${threadId}` : picked.reason }, { taskId: t.id });
+        p.emit("team.request", { text: a.document, taskIds: [t.id] });
+        this.approve(p, [t.id]);
         if (e.running) e.kick();
         else e.start({});
-        return { summary, tasks: created.map((t) => ({ id: t.id, title: t.title, role: t.role, dependsOn: t.dependsOn })) };
+        return { summary: `${role} owns this request${previous ? ` in ${threadId}` : ""}`, threadId, tasks: [{ id: t.id, title: t.title, role: t.role, dependsOn: t.dependsOn }] };
       },
       "roles.propose": async (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
@@ -359,6 +362,8 @@ export class EnginePlugin implements DaemonPlugin {
         const { p } = ctxProject(params, ctx.attended);
         const r = await landIntegration(p.root, p.config.integration_branch, p.config.base_branch);
         if (r.status === "landed") p.emit("integration.landed", { into: p.config.base_branch, mode: r.mode, commit: r.commit, commits: r.commits });
+        if (r.status === "landed" || r.status === "nothing") await reconcileDelivery(p);
+        else p.emit("land.blocked", { reason: r.status === "conflict" ? `conflicts in ${r.files.join(", ")}` : r.detail });
         return { ...r, into: p.config.base_branch, from: p.config.integration_branch };
       },
       /** How many commits on the integration branch your branch does not have yet. */

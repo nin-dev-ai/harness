@@ -9,7 +9,7 @@ export const StatusJsonSchema = z.object({
   workers: z.array(
     WorkerSchema.extend({ vendor: z.string(), route: z.string().nullable(), taskId: z.string().nullable(), taskTitle: z.string().nullable(), runKind: z.string().nullable(), elapsedMs: z.number().nullable() }),
   ),
-  tasks: z.array(TaskSchema.extend({ needsHumanReason: z.string().nullable().optional(), lastRunId: z.string().nullable().optional() })),
+  tasks: z.array(TaskSchema.extend({ needsHumanReason: z.string().nullable().optional(), lastRunId: z.string().nullable().optional(), delivery: z.enum(["delivered", "blocked", "pending"]).nullable().optional(), childIds: z.array(z.string()).optional() })),
   routes: z.array(
     z.object({
       route: z.string(),
@@ -28,5 +28,6 @@ export const StatusJsonSchema = z.object({
   ),
   approvals: z.array(z.object({ id: z.string(), taskId: z.string().nullable(), category: z.string(), context: z.string() })),
   warnings: z.array(z.string()),
+  threads: z.array(z.object({ id: z.string(), primaryRole: z.string(), state: z.enum(["WORKING", "WAITING", "NEEDS_HUMAN", "DELIVERED"]), taskIds: z.array(z.string()), reason: z.string().nullable() })).optional(),
 });
 export type StatusJson = z.infer<typeof StatusJsonSchema>;

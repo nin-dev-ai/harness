@@ -3,6 +3,9 @@ import { capPct } from "@harness/config";
 import { periodStart } from "@harness/quota";
 import type { ProjectRuntime } from "./project.js";
 import type { ProjectEngine } from "./outer-loop.js";
+import { taskDelivery } from "./delivery.js";
+import { threadStatuses, type ThreadStatus } from "./threads.js";
+import { delegationWaves } from "./delegation.js";
 
 export interface WindowView {
   route: string;
@@ -43,10 +46,11 @@ export interface StatusSnapshot {
   scheduler: { running: boolean; until: string | null; burst: boolean };
   now: string;
   workers: WorkerView[];
-  tasks: (Task & { needsHumanReason?: string | null; lastRunId?: string | null })[];
+  tasks: (Task & { needsHumanReason?: string | null; lastRunId?: string | null; delivery?: "delivered" | "blocked" | "pending" | null; childIds?: string[] })[];
   routes: RouteView[];
   approvals: { id: string; taskId: string | null; category: string; context: string }[];
   warnings: string[];
+  threads?: ThreadStatus[];
 }
 
 /** One consistent read of everything the UI and `status` show. */
@@ -109,9 +113,10 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
     scheduler: { running: engine.running, until: engine.until, burst: p.config.burst.enabled },
     now: now.toISOString(),
     workers,
-    tasks: tasks.map((t) => ({ ...t, needsHumanReason: t.state === "NEEDS_HUMAN" ? (needsHuman.get(t.id) ?? null) : null, lastRunId: p.store.runs.listByTask(p.id, t.id).at(-1)?.id ?? null })),
+    tasks: tasks.map((t) => ({ ...t, needsHumanReason: t.state === "NEEDS_HUMAN" ? (needsHuman.get(t.id) ?? null) : null, lastRunId: p.store.runs.listByTask(p.id, t.id).at(-1)?.id ?? null, delivery: t.state === "MERGED" ? taskDelivery(p, t.id) : null, childIds: delegationWaves(p, t.id).flatMap((w) => w.childIds) })),
     routes,
     approvals: p.store.windows.approvals(p.id, "PENDING").map((a) => ({ id: a.id, taskId: a.taskId, category: a.category, context: a.context })),
     warnings: p.warnings.map((w) => `${w.file ?? ""}${w.line ? `:${w.line}` : ""} ${w.message}`.trim()),
+    threads: threadStatuses(p),
   };
 }

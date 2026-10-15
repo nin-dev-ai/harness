@@ -157,3 +157,16 @@ Pooling only proves itself with numbers. `harness report` / `/report` shows the 
 
 ## 2026-10-16 · M38 Project facts
 The board's notes belong to one request; some knowledge should outlive it (conventions, how to run things, gotchas). Project facts are a short list at the top of the board, so every agent prompt carries them. The lead may add up to 3 per report, only things it confirmed and not already listed; the person adds or removes them with `/fact` or `harness facts`. Facts are events (`fact.added`, `fact.removed`), deduplicated case-insensitively and capped at 15: over the cap the oldest drops for good.
+## 2026-10-16 · Phase 3 delivery and delegation contract
+
+The original PRD says nothing touches `main`, and M23 requires a person to run `/land`. That conflicts with the requested default: verified work must reach the project branch automatically. A request is delivered only after its verified commit is reachable from the configured base branch. `MERGED` continues to mean merged into `harness/integration`; a landing refusal remains visible as a request-level blocker. Automatic landing never overwrites dirty work, rewrites history or force-pushes.
+
+The current read-only `lead` runs after a batch. It remains an acceptance checker. The primary writing agent owns a request and may propose bounded independent child jobs; deterministic daemon code admits, routes, tracks and integrates them. Vendor sessions remain native to each route. Cross-route continuity uses an event-derived, bounded semantic handoff, never a copied vendor transcript.
+
+The three intended production routes are Claude Code, Codex and Cursor through their respective CLI subscription logins. Cursor quota is unknown until the vendor exposes it, so a manual budget is required before unattended routing. No credential bytes are read, copied or shared. The existing prohibition on rotating multiple accounts of one vendor remains.
+
+## 2026-10-16 · Phase 3 lane and race scope
+
+The Phase 3 sketch called for a persistent worktree per agent. That conflicts with the current task branch isolation and merge-time verification: switching a shared worktree between branches while an agent is live can carry uncommitted edits into another task. We keep one isolated worktree per task, persist the conversation and route in events, resume a native vendor session on the same route when available, and supply a bounded event-derived handoff across routes or expired sessions. The handoff explicitly instructs the agent to recheck the current workspace. We will only add reusable physical lane worktrees after a live vendor check proves native resume fails across successive task directories.
+
+The sketch also listed an automatic best-of race. Running the same job on two subscriptions plus a third review spends quota before a check has shown the first attempt is insufficient, contradicting the efficiency goal and the existing failure-triggered escalation. It is deferred to an explicit opt-in experiment with cost and quality measurement. Phase 3's release gate is one primary, bounded delegation, automatic delivery, and honest routing/recovery; there is no background race.

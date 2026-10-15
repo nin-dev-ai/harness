@@ -3,6 +3,7 @@ import path from "node:path";
 import type { HarnessEvent, Task } from "@harness/core";
 import { readTaskFile, writeFileAtomic } from "@harness/config";
 import type { ProjectRuntime } from "./project.js";
+import { taskDelivery } from "./delivery.js";
 
 /**
  * The team board: one `.harness/HARNESS.md` that says what the person asked
@@ -34,7 +35,7 @@ export function projectFacts(p: ProjectRuntime): string[] {
 /** Event types that change what the board shows. */
 const BOARD_EVENTS = new Set([
   "team.request", "task.created", "task.state_changed", "task.routed", "task.needs_human", "run.started", "run.finished",
-  "branch.merged", "worker.assigned", "review.passed", "review.blocked", "lead.reported", "fact.added", "fact.removed",
+  "branch.merged", "task.delivered", "land.blocked", "worker.assigned", "review.passed", "review.blocked", "lead.reported", "fact.added", "fact.removed",
 ]);
 
 const IMPLEMENT = new Set(["initial", "repair", "resume"]);
@@ -50,6 +51,7 @@ export interface BoardTask {
   summary?: string | undefined;
   files?: string[] | undefined;
   reason?: string | undefined;
+  delivery?: "delivered" | "blocked" | "pending" | undefined;
 }
 
 export interface BoardData {
@@ -73,8 +75,8 @@ export interface ChecklistItem {
 
 const MARK: Record<ChecklistItem["state"], string> = { done: "[x]", working: "[~]", waiting: "[ ]", stuck: "[!]", dropped: "[-]" };
 
-function itemState(taskState: string): ChecklistItem["state"] {
-  if (taskState === "MERGED") return "done";
+function itemState(taskState: string, delivery?: "delivered" | "blocked" | "pending"): ChecklistItem["state"] {
+  if (taskState === "MERGED") return delivery === "delivered" ? "done" : delivery === "blocked" ? "stuck" : "waiting";
   if (taskState === "NEEDS_HUMAN") return "stuck";
   if (taskState === "CANCELLED") return "dropped";
   if (["RUNNING", "GATING", "REPAIRING", "REVIEWING", "PR_READY"].includes(taskState)) return "working";
@@ -118,11 +120,11 @@ export function renderBoard(d: BoardData): string {
   const line = (t: BoardTask) => `- **${t.id}** ${t.title} · \`${t.role}\`${t.agent ? ` (${t.agent}${t.vendor ? `, ${t.vendor}` : ""})` : ""}`;
   const active = d.tasks.filter((t) => ACTIVE.has(t.state));
   out.push("## Working now", ...(active.length ? active.map((t) => `${line(t)} · ${t.state.toLowerCase()}`) : ["- nobody"]), "");
-  const waiting = d.tasks.filter((t) => WAITING.has(t.state));
-  if (waiting.length) out.push("## Up next", ...waiting.map((t) => `${line(t)} · ${t.state.toLowerCase()}${t.dependsOn.length ? ` after ${t.dependsOn.join(", ")}` : ""}`), "");
-  const needs = d.tasks.filter((t) => t.state === "NEEDS_HUMAN");
+  const waiting = d.tasks.filter((t) => WAITING.has(t.state) || (t.state === "MERGED" && t.delivery === "pending"));
+  if (waiting.length) out.push("## Up next", ...waiting.map((t) => `${line(t)} · ${t.state === "MERGED" ? "waiting to land" : t.state.toLowerCase()}${t.dependsOn.length ? ` after ${t.dependsOn.join(", ")}` : ""}`), "");
+  const needs = d.tasks.filter((t) => t.state === "NEEDS_HUMAN" || (t.state === "MERGED" && t.delivery === "blocked"));
   if (needs.length) out.push("## Needs the person", ...needs.map((t) => `${line(t)}${t.reason ? ` · ${t.reason}` : ""}`), "");
-  const done = d.tasks.filter((t) => t.state === "MERGED" || t.state === "PR_READY").slice(-12);
+  const done = d.tasks.filter((t) => (t.state === "MERGED" && t.delivery === "delivered") || t.state === "PR_READY").slice(-12);
   out.push("## Done");
   if (!done.length) out.push("- nothing yet");
   for (const t of done) {
@@ -137,7 +139,7 @@ export function renderBoard(d: BoardData): string {
 
 /** Collect board data from the store. */
 export function boardData(p: ProjectRuntime): BoardData {
-  const events = p.store.events.list({ projectId: p.id, types: ["team.request", "run.started", "run.finished", "worker.assigned", "branch.merged", "task.needs_human", "lead.reported"] });
+  const events = p.store.events.list({ projectId: p.id, types: ["team.request", "run.started", "run.finished", "worker.assigned", "branch.merged", "task.needs_human", "land.blocked", "lead.reported"] });
   const byTask = new Map<string, { agent?: string; vendor?: string; summary?: string; files?: string[]; reason?: string }>();
   const runs = new Map<string, { kind: string; vendor: string }>();
   const requests: BoardData["requests"] = [];
@@ -158,6 +160,7 @@ export function boardData(p: ProjectRuntime): BoardData {
       for (const n of notesIn(pl.summary)) notes.push({ taskId: e.taskId, agent: e.workerId ?? "", text: relativize(n, p.root) });
     } else if (e.type === "branch.merged" && Array.isArray(pl.files)) slot(e.taskId).files = pl.files as string[];
     else if (e.type === "task.needs_human") slot(e.taskId).reason = String(pl.reason);
+    else if (e.type === "land.blocked" && e.taskId) slot(e.taskId).reason = `landing blocked: ${e.payload.reason}`;
   }
   // The latest request's checklist: its tasks plus any follow-ups the lead set for it.
   let checklist: BoardData["checklist"];
@@ -176,11 +179,11 @@ export function boardData(p: ProjectRuntime): BoardData {
       } catch {
         // no spec file: use the title
       }
-      for (const text of acceptance.length ? acceptance : [t.title]) items.push({ taskId: id, text, state: itemState(t.state) });
+      for (const text of acceptance.length ? acceptance : [t.title]) items.push({ taskId: id, text, state: itemState(t.state, t.state === "MERGED" ? taskDelivery(p, id) : undefined) });
     }
     checklist = { request: lastReq.payload.text, items };
   }
-  const tasks: BoardTask[] = p.tasks().filter((t: Task) => t.state !== "CANCELLED").map((t) => ({ id: t.id, title: t.title, role: t.role, state: t.state, dependsOn: t.dependsOn, ...byTask.get(t.id) }));
+  const tasks: BoardTask[] = p.tasks().filter((t: Task) => t.state !== "CANCELLED").map((t) => ({ id: t.id, title: t.title, role: t.role, state: t.state, dependsOn: t.dependsOn, ...(t.state === "MERGED" ? { delivery: taskDelivery(p, t.id) } : {}), ...byTask.get(t.id) }));
   return { project: p.config.project, updatedAt: p.now(), requests, tasks, notes, lead, checklist, facts: projectFacts(p) };
 }
 

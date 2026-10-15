@@ -7,7 +7,7 @@ You say what you want. harness picks the right agent for each part (no `@tagging
 - checks every task with **your own tests**, run independently of the agent;
 - sends failures back to the same agent session as a bounded repair loop;
 - has a read-only reviewer check the diff;
-- merges passing work into a local `harness/integration` branch. It only touches `main` when you run `harness land`.
+- merges passing work into `harness/integration` and, with the default `land: auto`, delivers it to the configured base branch after checks pass.
 
 It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset. A role can **pool** several tools (`pool: [codex, cursor]`): each task goes to whichever has the most room left, and **model tiers** (`models: { S: …, L: … }`) give small tasks a cheaper model.
 
@@ -68,13 +68,13 @@ harness
 
 **Then you chat.** The home screen is like Claude Code's: a big banner, a card listing your agents (tool and model each), and the chat box. Detail is one `/` away:
 
-- **Type a message.** If it is clearly one agent's job (keywords, its role, the files you mention against its folders), that agent starts at once. Work that spans agents goes to the planner, which splits it into one parallel mini prompt per agent. You never have to name an agent.
+- **Type a message.** Harness picks one primary writing agent from your roles and starts it. The same conversation keeps that primary across turns; it resumes the vendor session when possible and carries a bounded handoff when the route changes. The primary can delegate a few independent jobs. Use `/plan` when you want a draft split to approve yourself.
 - **Tab** picks one agent: its live session shows and your messages go straight to it (a busy agent pauses at a safe point and reads it; an idle one starts a new task). Tab back to `team`.
 - **`/`** opens commands: `/agents` (who is doing what: tool, time, context, cost), `/usage` (limits per tool), `/panes` (every live session side by side), `/zoom`, `/review`, `/diff`, `/accept`, `/attach` (the agent's real interactive CLI), `/theme`, `/help`.
 - **`/board`** shows the team board (`.harness/HARNESS.md`): what you asked for, who is doing what, what each agent finished and changed, and the notes agents leave each other. Every agent prompt carries it.
 - **`/windows`** opens one real terminal window per agent (macOS), each running `harness watch <agent>`; anywhere else, run `harness watch backend-1` in your own terminals.
-- **`/land`** brings finished work from `harness/integration` into your branch (fast-forward, or a merge commit; conflicts are listed, never resolved).
-- **Ctrl-C** closes harness; the agents keep working. `/stop` stops them.
+- **`/land`** retries delivery if an automatic landing was blocked, or delivers work when you chose `land: manual`.
+- **Ctrl-C** closes harness in one press and restores your previous terminal screen; the agents keep working. `/stop` stops them.
 
 Everything is also a plain command, for scripts:
 
@@ -107,13 +107,14 @@ DRAFT → QUEUED → RUNNING → GATING → REVIEWING → PR_READY → MERGED
 - **Repair.** The failing output goes back to the *same* vendor session. A stall stops the loop: the same failure twice, an unchanged diff, or no attempts left.
 - **Review.** The `reviewer` role runs read-only and returns structured findings. A blocker means another repair. Anything the reviewer writes is reverted.
 - **Merge.** Rebase onto `harness/integration`, re-run the required checks, then fast-forward. Conflicts go to you, with the conflicting files listed.
+- **Delivery.** By default Harness lands each verified merge into `base_branch`. A task is delivered only when its commit is in that branch. Dirty or conflicting bases are left untouched and shown as blocked; `/land` retries after you resolve the blocker.
 - **Limits.** A rate limit pauses only that route, and work is checkpointed as a `wip` commit. It resumes at the reset (plus jitter), or probes with backoff if the reset time is unknown. Every usage number shows its source (`[vendor]`, `[manual]` or `[inferred]`); unknown is never shown as 0%.
 - **Policy.** Out-of-scope writes are reverted and fail the gate. Protected paths and new dependencies need approval. Subscription routes ask before dispatching while you're away (`harness routes unattended <route> allow|ask|deny`).
 - **Takeover.** `a` in the UI (or `harness attach frontend-1`) pauses the worker, commits a checkpoint, and opens the vendor's own interactive CLI on the same session.
 
 ## How the team stays coordinated
 
-- **Routing.** A deterministic router (no model call) scores each writing role on keyword hints, its own instructions, and the files you mention against its `paths_allow`. A clear winner starts immediately; anything spanning roles goes to the planner. After planning, a task whose files lie outside its role's folders is moved to a role that may write them.
+- **Routing.** A deterministic router (no model call) scores writing roles on keyword hints, instructions, and mentioned paths. Each role can pool Claude, Codex and Cursor subscription routes. A viable prior route keeps the native session; otherwise the pool uses available headroom and skips missing or signed-out CLIs. Explicit `/plan` can split a larger request into draft tasks.
 - **Team board.** `.harness/HARNESS.md` is rebuilt from the event log on every change. Agents read it in their prompt and add to it with `NOTE:` lines in their final summary.
 - **Handoff.** A task that depends on others gets their summaries, changed files and notes. A session past `limits.fresh_session_after_tokens` is not resumed; the next run starts fresh from the board instead of a compacted context.
 - **Lead.** When a batch of work settles, the read-only `lead` role compares it with your request, reports a status line in the chat, and may set a few follow-ups (`limits.lead_followups`, `limits.lead_rounds`).

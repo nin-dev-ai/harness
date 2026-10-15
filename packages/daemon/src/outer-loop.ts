@@ -24,6 +24,7 @@ import {
   diffText,
   ensureIntegrationBranch,
   git,
+  isAncestor,
   filesWithConflictMarkers,
   mergeTask,
   replayOnIntegration,
@@ -40,6 +41,10 @@ import type { RunOutcome, Supervisor } from "./supervisor.js";
 import { TmuxMirror } from "./tmux.js";
 import { currentUsed } from "@harness/quota";
 import { BoardWriter, boardForPrompt, handoffFor } from "./board.js";
+import { reconcileDelivery, taskDelivery } from "./delivery.js";
+import { previousTurn, priorRoute, threadForTask, threadHandoff } from "./threads.js";
+import { childHandoff, delegationWaves, isDelegatedChild, parseDelegation, type DelegatedJob } from "./delegation.js";
+import { pickRole } from "./planning.js";
 
 interface LiveRun {
   runId: string;
@@ -72,6 +77,7 @@ export class ProjectEngine {
   /** Workers holding a task outside a run (gating). */
   private holding = new Map<string, string>();
   private lastReason = new Map<string, string>();
+  private readiness = new Map<string, { at: number; installed: boolean; signedIn: "yes" | "no" | "unknown"; hint?: string }>();
   private ticking = false;
   private again = false;
   private cancelTimer: (() => void) | undefined;
@@ -183,8 +189,12 @@ export class ProjectEngine {
       return;
     }
     const cfg = this.p.config;
+    this.checkDelegations();
     const tasks = this.p.tasks();
     for (const t of waitingOnDeps(tasks)) this.block(t, "dependencies");
+    if (cfg.land === "auto") for (const t of tasks) {
+      if (t.state === "QUEUED" && t.dependsOn.some((id) => this.p.task(id).state === "MERGED" && taskDelivery(this.p, id) !== "delivered")) this.block(t, "dependencies", "a dependency has not reached the base branch");
+    }
 
     const items = selectWork({
       config: cfg,
@@ -193,6 +203,7 @@ export class ProjectEngine {
       pauseCause: (id) => this.pauseCause(id),
       filesHint: (id) => this.filesHint(id),
       reviewerRole: this.reviewerRole(),
+      ...(cfg.land === "auto" ? { delivered: (id: string) => taskDelivery(this.p, id) === "delivered" } : {}),
       onlyRole: this.onlyRole,
       onlyTask: this.onlyTask,
     });
@@ -214,11 +225,19 @@ export class ProjectEngine {
       if (role.pool.length) for (const g of this.guards) await g.refreshRoutes?.([role.route, ...role.pool]);
       const candidates = [...this.poolOrder(item, [role.route, ...role.pool]), ...(role.fallback !== "none" ? role.fallback_routes : [])];
       let chosen: string | undefined;
+      const skipped: { route: string; reason: string }[] = [];
       let firstBlock: { reason: NonNullable<Task["blockedReason"]>; detail?: string } | undefined;
       for (const route of candidates) {
+        const ready = await this.routeReadiness(route);
+        if (!ready.ok) {
+          firstBlock ??= { reason: ready.reason, detail: ready.detail };
+          skipped.push({ route, reason: ready.detail });
+          continue;
+        }
         const rs = this.p.store.windows.routeState(this.p.id, route);
         if (rs.pausedUntil && rs.pausedUntil > now) {
           firstBlock ??= { reason: "paused", detail: `route ${route} paused until ${rs.pausedUntil}${rs.pauseSource === "backoff" ? " (probing)" : ""}` };
+          skipped.push({ route, reason: firstBlock.detail ?? "paused" });
           continue;
         }
         if (item.kind === "implement") {
@@ -232,6 +251,7 @@ export class ProjectEngine {
         const decision = await this.checkGuards(item, route);
         if (!decision.ok) {
           firstBlock ??= { reason: decision.reason, ...(decision.detail ? { detail: decision.detail } : {}) };
+          skipped.push({ route, reason: decision.detail ?? decision.reason });
           continue;
         }
         chosen = route;
@@ -242,10 +262,28 @@ export class ProjectEngine {
         continue;
       }
       const route = chosen;
+      this.p.emit("route.selected", { route, candidates, skipped }, { taskId: item.task.id });
       this.p.emit("dispatch.considered", { dispatched: true, route }, { taskId: item.task.id });
       this.lastReason.delete(item.task.id);
       await this.dispatch(item, worker.id, route);
     }
+  }
+
+  private async routeReadiness(route: string): Promise<{ ok: true } | { ok: false; reason: "auth" | "cli_missing"; detail: string }> {
+    const now = this.p.clock.now().getTime();
+    let health = this.readiness.get(route);
+    if (!health || now - health.at >= 60_000) {
+      try {
+        const detected = await this.p.adapter(route).detect();
+        health = { at: now, installed: detected.installed, signedIn: detected.signedIn, ...(detected.fixHint ? { hint: detected.fixHint } : {}) };
+      } catch (e) {
+        health = { at: now, installed: false, signedIn: "unknown", hint: (e as Error).message };
+      }
+      this.readiness.set(route, health);
+    }
+    if (!health.installed) return { ok: false, reason: "cli_missing", detail: `${route}: CLI unavailable${health.hint ? `; ${health.hint}` : ""}` };
+    if (this.p.config.routes[route]?.auth === "subscription" && health.signedIn !== "yes") return { ok: false, reason: "auth", detail: `${route}: subscription sign-in ${health.signedIn}${health.hint ? `; ${health.hint}` : ""}` };
+    return { ok: true };
   }
 
   /**
@@ -256,7 +294,7 @@ export class ProjectEngine {
    */
   private poolOrder(item: WorkItem, pool: string[]): string[] {
     if (pool.length < 2) return pool;
-    const sticky = item.kind === "implement" ? this.implementerRuns(item.task.id).at(-1)?.route : undefined;
+    const sticky = item.kind === "implement" ? (this.implementerRuns(item.task.id).at(-1)?.route ?? priorRoute(this.p, item.task.id)) : undefined;
     const now = this.p.clock.now();
     const left = (route: string) => {
       const ws = new Map(this.p.store.windows.list(this.p.id, route).map((w) => [w.kind, w]));
@@ -302,10 +340,10 @@ export class ProjectEngine {
   }
 
   /** Why a task is PAUSED: the reason on its last transition into PAUSED. */
-  pauseCause(taskId: string): "limit" | "user" | undefined {
+  pauseCause(taskId: string): "limit" | "delegation" | "user" | undefined {
     const ev = this.lastTransitionInto(taskId, "PAUSED");
     if (!ev) return undefined;
-    return ev.reason?.startsWith("limit") ? "limit" : "user";
+    return ev.reason?.startsWith("limit") ? "limit" : ev.reason?.startsWith("delegation") ? "delegation" : "user";
   }
 
   private lastTransitionInto(taskId: string, state: TaskState): { from: TaskState; reason?: string | undefined } | undefined {
@@ -343,9 +381,23 @@ export class ProjectEngine {
   private async ensureWorkspace(task: Task): Promise<{ ok: true; path: string } | { ok: false; detail: string }> {
     const cfg = this.p.config;
     await ensureIntegrationBranch(this.p.root, cfg.integration_branch, cfg.base_branch);
-    // New work starts from the person's current code, never a stale copy.
-    if (!task.branch && (await syncIntegration(this.p.root, cfg.integration_branch, cfg.base_branch)) === "synced") {
-      this.p.emit("integration.synced", { base: cfg.base_branch, commit: await git(this.p.root, ["rev-parse", cfg.integration_branch]) });
+    // Never create a new task from an integration branch that missed edits on the base.
+    if (!task.branch) {
+      let sync = await syncIntegration(this.p.root, cfg.integration_branch, cfg.base_branch);
+      if (sync === "diverged" && cfg.land === "auto") {
+        const land = await landIntegration(this.p.root, cfg.integration_branch, cfg.base_branch);
+        if (land.status === "landed") {
+          this.p.emit("integration.landed", { into: cfg.base_branch, mode: land.mode, commit: land.commit, commits: land.commits });
+          await reconcileDelivery(this.p);
+          sync = await syncIntegration(this.p.root, cfg.integration_branch, cfg.base_branch);
+        } else if (land.status !== "nothing") {
+          const detail = land.status === "conflict" ? `conflicts in ${land.files.join(", ")}` : land.detail;
+          this.p.emit("land.blocked", { reason: detail }, { taskId: task.id });
+          return { ok: false, detail: `integration cannot follow ${cfg.base_branch}: ${detail}` };
+        }
+      }
+      if (sync === "diverged" && !(await isAncestor(this.p.root, cfg.base_branch, cfg.integration_branch))) return { ok: false, detail: `integration branch has unlanded work and ${cfg.base_branch} moved; land or reconcile it before starting a new task` };
+      if (sync === "synced") this.p.emit("integration.synced", { base: cfg.base_branch, commit: await git(this.p.root, ["rev-parse", cfg.integration_branch]) });
     }
     const branch = task.branch ?? taskBranch(task.role, task.id, task.title);
     const wt = await createWorktree(this.p.root, task.id, branch, cfg.integration_branch);
@@ -392,6 +444,18 @@ export class ProjectEngine {
       this.needsHuman(task.id, "workspace setup failed", { detail: ws.detail });
       return;
     }
+    const pendingWave = delegationWaves(this.p, task.id).at(-1);
+    if (pendingWave) {
+      const resumed = this.p.store.events.list({ projectId: this.p.id, taskId: task.id, types: ["delegation.resumed"] }).at(-1);
+      if ((resumed?.seq ?? 0) < pendingWave.seq) {
+        const replay = await replayOnIntegration(ws.path, this.p.config.integration_branch);
+        if (replay.status !== "clean") {
+          this.needsHuman(task.id, "delegated work could not be integrated into the primary workspace", { replay });
+          return;
+        }
+        this.p.emit("delegation.resumed", { childIds: pendingWave.childIds }, { taskId: task.id });
+      }
+    }
     const role = this.p.config.roles[task.role]!;
     const prior = this.implementerRuns(task.id);
     const last = prior.at(-1);
@@ -418,10 +482,23 @@ export class ProjectEngine {
         prompt = buildFreshResumePrompt(this.taskPrompt(task), (await diffSummary(ws.path, this.p.config.integration_branch)).stat);
         if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
       }
+      if (pendingWave) prompt += `\n\n${childHandoff(this.p, task.id)}`;
       this.p.emit("run.resumed", { ...(resumeSessionId ? { sessionId: resumeSessionId } : {}), fresh: !resumeSessionId }, { taskId: task.id });
       this.p.transition(task.id, "RUNNING", task.state === "PAUSED" ? "resume after limit" : "resume");
     } else {
       prompt = this.taskPrompt(task);
+      if (threadForTask(this.p, task.id) && !isDelegatedChild(this.p, task.id)) prompt += "\n\nIf genuinely independent work would help, you may finish this turn with one line: DELEGATE: {\"jobs\":[{\"title\":\"...\",\"description\":\"...\",\"files_hint\":[\"path\"],\"acceptance\":[\"criterion\"]}]}. Use at most three disjoint jobs. Harness validates them, runs them in isolated worktrees, and resumes you with their verified results. Otherwise finish the work yourself.\n";
+      const previous = previousTurn(this.p, task.id);
+      const thread = threadForTask(this.p, task.id);
+      if (previous && thread) {
+        const fromRoute = priorRoute(this.p, task.id);
+        if (fromRoute === route) resumeSessionId = this.lastSession(previous.taskId, route);
+        if (!resumeSessionId) prompt += `\n\n${threadHandoff(this.p, task.id)}`;
+        this.p.emit("thread.continuity", {
+          threadId: thread.threadId, carrier: resumeSessionId ? "native_resume" : "handoff", route,
+          ...(fromRoute ? { fromRoute } : {}), sourceTaskId: previous.taskId,
+        }, { taskId: task.id });
+      }
       if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
       this.p.emit("task.updated", { fields: { attempts: task.attempts + 1 } }, { taskId: task.id });
       this.p.transition(task.id, "RUNNING");
@@ -583,6 +660,9 @@ export class ProjectEngine {
       if (!this.guards.some((g) => g.onLimit)) this.defaultPauseRoute(route, outcome);
     }
     this.live.delete(taskId);
+    // Keep the task and worker reserved through checkpoint, gate, or review
+    // processing. A concurrent scheduling tick must not start a second review.
+    this.holding.set(workerId, taskId);
     for (const g of this.guards) await g.onRunFinished?.(this.p, task, route, kind, outcome);
     const releaseWorker = (reason: string | null = null) => {
       this.holding.delete(workerId);
@@ -622,8 +702,11 @@ export class ProjectEngine {
     }
 
     if (kind === "review") {
-      releaseWorker();
-      await this.afterReview(task, outcome, reviewTreeHash);
+      try {
+        await this.afterReview(task, outcome, reviewTreeHash);
+      } finally {
+        releaseWorker();
+      }
       return;
     }
 
@@ -638,13 +721,66 @@ export class ProjectEngine {
       return;
     }
 
+    const requested = outcome.state === "SUCCEEDED" ? parseDelegation(outcome.result?.summary ?? "") : null;
+    if (requested) {
+      releaseWorker();
+      const reason = "error" in requested ? requested.error : await this.acceptDelegation(task, outcome.runId, requested.jobs, wt);
+      if (reason) {
+        this.p.emit("delegation.refused", { reason, runId: outcome.runId }, { taskId });
+        this.needsHuman(taskId, `delegation refused: ${reason}`, { runId: outcome.runId });
+      } else this.p.transition(taskId, "PAUSED", "delegation: waiting for children");
+      this.kick();
+      return;
+    }
+
     // Whatever the agent claims, the gate decides.
-    this.holding.set(workerId, taskId);
     this.p.setWorker(workerId, "RUNNING", { reason: "gating" });
     try {
       await this.gate(task.id, outcome.runId);
     } finally {
       releaseWorker();
+    }
+  }
+
+  private async acceptDelegation(task: Task, runId: string, jobs: DelegatedJob[], worktree: string): Promise<string | null> {
+    if (isDelegatedChild(this.p, task.id)) return "delegated children cannot delegate";
+    const total = delegationWaves(this.p, task.id).reduce((n, wave) => n + wave.childIds.length, 0);
+    if (total + jobs.length > this.p.config.limits.max_delegated_children) return "child count exceeds the request limit";
+    if (jobs.length > this.p.config.limits.max_concurrent_children) return "too many children in one wave";
+    const own = await changedFiles(worktree, this.p.config.integration_branch);
+    for (const [index, job] of jobs.entries()) {
+      if (filesOverlap(job.files_hint, own)) return `child ${index + 1} overlaps the primary agent's edits`;
+      if (jobs.slice(0, index).some((earlier) => filesOverlap(job.files_hint, earlier.files_hint))) return `child ${index + 1} overlaps another child`;
+    }
+    const childIds: string[] = [];
+    for (const job of jobs) {
+      const role = pickRole(this.p, `${job.title}\n${job.description}\n${job.files_hint.join(" ")}`).role;
+      const child = this.p.createTask({ title: job.title, role, body: job.description, acceptance: job.acceptance, filesHint: job.files_hint, size: task.size });
+      this.p.emit("delegation.child", { parentTaskId: task.id }, { taskId: child.id });
+      childIds.push(child.id);
+    }
+    this.p.emit("delegation.accepted", { childIds, runId }, { taskId: task.id });
+    for (const id of childIds) {
+      this.p.emit("task.approved", { by: `delegation:${task.id}` }, { taskId: id });
+      this.p.transition(id, "QUEUED", `delegated by ${task.id}`);
+    }
+    return null;
+  }
+
+  /** Rebuildable from events after a crash; no parent finishes before its children. */
+  private checkDelegations(): void {
+    for (const parent of this.p.tasks(["PAUSED"])) {
+      if (this.pauseCause(parent.id) !== "delegation") continue;
+      const wave = delegationWaves(this.p, parent.id).at(-1);
+      if (!wave) continue;
+      const children = wave.childIds.map((id) => this.p.task(id));
+      for (const child of children) if (child.state === "DRAFT") {
+        this.p.emit("task.approved", { by: `delegation:${parent.id}` }, { taskId: child.id });
+        this.p.transition(child.id, "QUEUED", `delegated by ${parent.id}`);
+      }
+      const failed = children.find((child) => child.state === "NEEDS_HUMAN" || child.state === "CANCELLED" || (child.state === "MERGED" && taskDelivery(this.p, child.id) === "blocked"));
+      if (failed) this.needsHuman(parent.id, `delegated child ${failed.id} needs attention`, { childId: failed.id });
+      else if (children.every((child) => child.state === "MERGED" && (this.p.config.land !== "auto" || taskDelivery(this.p, child.id) === "delivered"))) this.p.transition(parent.id, "QUEUED", "delegated children finished");
     }
   }
 
@@ -840,9 +976,10 @@ export class ProjectEngine {
       if (cfg.land === "auto") {
         const l = await landIntegration(this.p.root, cfg.integration_branch, cfg.base_branch).catch((e: Error) => ({ status: "refused" as const, detail: e.message }));
         if (l.status === "landed") this.p.emit("integration.landed", { into: cfg.base_branch, mode: l.mode, commit: l.commit, commits: l.commits });
-        else if (l.status !== "nothing") this.p.emit("land.blocked", { reason: l.status === "conflict" ? `conflicts in ${l.files.join(", ")}` : l.detail });
+        else if (l.status !== "nothing") this.p.emit("land.blocked", { reason: l.status === "conflict" ? `conflicts in ${l.files.join(", ")}` : l.detail }, { taskId });
       }
       this.p.transition(taskId, "MERGED");
+      if (cfg.land === "auto") await reconcileDelivery(this.p);
       await this.markStale(taskId, r.commit);
       await removeWorktree(this.p.root, taskId);
       this.p.emit("worktree.removed", { path: task.worktree ?? "" }, { taskId });
@@ -932,6 +1069,10 @@ export class ProjectEngine {
   }
 
   async cancelTask(taskId: string): Promise<void> {
+    for (const wave of delegationWaves(this.p, taskId)) for (const childId of wave.childIds) {
+      const child = this.p.task(childId);
+      if (child.state !== "MERGED" && child.state !== "CANCELLED") await this.cancelTask(childId);
+    }
     const l = this.live.get(taskId);
     this.p.transition(taskId, "CANCELLED", "user");
     if (l) await this.supervisor.stop(l.runId, "cancel");

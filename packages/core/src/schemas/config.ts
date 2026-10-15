@@ -68,6 +68,8 @@ export const LimitsSchema = z
     lead_rounds: z.number().int().min(1).max(5).default(2),
     /** Follow-up jobs the lead may set per round. */
     lead_followups: z.number().int().min(0).max(10).default(3),
+    max_delegated_children: z.number().int().min(0).max(16).default(8),
+    max_concurrent_children: z.number().int().min(1).max(8).default(3),
     fresh_session_after_tokens: z.number().int().min(10_000).default(400_000),
     quiet_hours: quietHours.optional(),
     routes: z.record(name, RouteLimitsSchema).default({}),
@@ -123,7 +125,7 @@ export const HarnessConfigSchema = z
     project: name,
     integration_branch: z.string().default("harness/integration"),
     /** "auto": every merge that passes lands in the base branch at once (fast-forward, or a merge commit on a clean checkout). */
-    land: z.enum(["manual", "auto"]).default("manual"),
+    land: z.enum(["manual", "auto"]).default("auto"),
     base_branch: z.string().default("main"),
     routes: z.record(name, RouteSchema),
     roles: z.record(name, RoleSchema),

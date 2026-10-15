@@ -66,6 +66,30 @@ describe("subscription pool", () => {
     expect([routeOf(a.id), routeOf(b.id)]).toEqual(["fast", "fast"]);
   });
 
+  it("uses a signed-in pool member when another subscription is signed out", async () => {
+    s = createScenario({ config: CONFIG.replaceAll("auth: api_key", "auth: subscription") });
+    s.adapterFactory("slow").setDetect({ installed: true, version: "fake", signedIn: "no", fixHint: "sign in" });
+    h = await startHarness(s);
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    const t = h.project.createTask({ title: "A", role: "backend", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    expect(routeOf(t.id)).toBe("fast");
+    expect(h.project.store.events.list({ projectId: h.project.id, taskId: t.id, types: ["route.selected"] }).find((e) => e.type === "route.selected" && e.payload.route === "fast")?.payload).toMatchObject({ skipped: [{ route: "slow", reason: expect.stringContaining("sign-in no") }] });
+  });
+
+  it("reports missing CLIs as a typed blocker without dispatching", async () => {
+    s = createScenario({ config: CONFIG.replaceAll("auth: api_key", "auth: subscription") });
+    s.adapterFactory("slow").setDetect({ installed: false, signedIn: "unknown", fixHint: "install slow" });
+    s.adapterFactory("fast").setDetect({ installed: false, signedIn: "unknown", fixHint: "install fast" });
+    h = await startHarness(s);
+    const t = h.project.createTask({ title: "A", role: "backend", state: "QUEUED" });
+    h.engine.start();
+    await h.engine.tick();
+    expect(h.project.task(t.id).blockedReason).toBe("cli_missing");
+    expect(h.project.store.runs.listByTask(h.project.id, t.id)).toHaveLength(0);
+  });
+
   it("a pool may not hold two routes of one vendor", () => {
     const bad = `version: 1
 project: demo
