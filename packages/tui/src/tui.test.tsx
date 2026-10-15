@@ -95,6 +95,15 @@ describe("chat with your team", () => {
     store.stop();
   });
 
+  it("every launch shows the banner, even on a project with past tasks, until you start typing", async () => {
+    const { ui, store } = await setup(undefined, 150, 46);
+    expect(ui.lastFrame()!).toContain("██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗");
+    ui.stdin.write("\t");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ui.lastFrame()!).not.toContain("██╗  ██╗ █████╗ ██████╗");
+    store.stop();
+  });
+
   it("while agents work, home shows one calm line per working agent; /agents and /usage give the detail", async () => {
     const { ui, emit, store } = await setup(undefined, 150, 30);
     emit(ev("run.event", "T-005", "backend-1", { event: { type: "message", runId: "R-T-005-1", text: "Writing the quote feed adapter" } }));

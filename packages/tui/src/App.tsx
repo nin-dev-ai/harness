@@ -412,7 +412,8 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   const teamFeed = store.local.get("_team") ?? [];
   const focusTaskId = focusWorker ? paneTask(focusWorker)?.id : undefined;
   const feedList = focusWorker ? store.stream(focusWorker.id, focusTaskId) : teamFeed;
-  const fresh = tasks.length === 0 && teamFeed.length === 0;
+  // The banner greets every launch, like Claude Code, until you start talking or pick an agent.
+  const fresh = teamFeed.length === 0 && !focusWorker;
   const home = overlay.kind === "none";
   const menuRows = input.startsWith("/") ? Math.min(7, completions(input).length) : 0;
 
@@ -478,7 +479,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   });
   const maxAgents = 8;
   const welcomeRows = 2 + 3 + Math.min(homeAgents.length, maxAgents) + (homeAgents.length > maxAgents ? 1 : 0);
-  const bigBanner = columns >= BIG_BANNER_WIDTH + 2;
+  const bigBanner = columns >= BIG_BANNER_WIDTH + 2 && rows >= BIG_BANNER.length + welcomeRows + 12;
   const bannerRows = bigBanner ? BIG_BANNER.length : SMALL_BANNER.length;
   const activity: ActivityItem[] = workers
     .filter((w) => w.state === "RUNNING")
@@ -489,7 +490,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
       const now = act ? (act.kind === "tool" ? `${act.text} ${act.detail ?? ""}`.trim() : act.kind === "edit" ? `editing ${act.text}` : act.kind === "check" ? act.text : act.text.replace(/\s+/g, " ")) : "";
       return { id: w.id, vendor: w.vendor, what: task ? `${task.id} ${task.title}` : statusOf(w).label, now: now.slice(0, 60), time: duration(w.elapsedMs), focused: focusWorker?.id === w.id };
     });
-  const fullHeader = home && fresh && rows >= bannerRows + welcomeRows + 12;
+  const fullHeader = home && fresh && rows >= bannerRows + welcomeRows + 10;
   const headerRows = fullHeader ? bannerRows + 1 + welcomeRows + 2 : 1;
   const bottomRows = 3 + menuRows + 1 + toasts.length + (home ? activity.length : 0);
   const areaHeight = Math.max(8, rows - headerRows - bottomRows);
