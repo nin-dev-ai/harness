@@ -345,13 +345,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   };
 
   useInput((ch, key) => {
-    if (key.ctrl && ch === "c") {
-      if (input) {
-        setInput("");
-        setCursor(0);
-      } else quit({ action: "quit" });
-      return;
-    }
+    if (key.ctrl && ch === "c") return quit({ action: "quit" });
     if (key.ctrl && ch === "d") return quit({ action: "quit" });
     if (key.escape) {
       if (overlay.kind !== "none") return setOverlay({ kind: "none" });

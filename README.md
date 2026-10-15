@@ -71,7 +71,7 @@ harness
 - **Type a message** and the planner splits it into mini prompts, one per agent, and starts them. You see the split in the feed.
 - **Tab** picks one agent: its live session shows and your messages go straight to it (a busy agent pauses at a safe point and reads it; an idle one starts a new task). Tab back to `team`.
 - **`/`** opens commands: `/agents` (who is doing what: tool, time, context, cost), `/usage` (limits per tool), `/panes` (every live session side by side), `/zoom`, `/review`, `/diff`, `/accept`, `/attach` (the agent's real interactive CLI), `/theme`, `/help`.
-- **Ctrl-C** closes harness; the agents keep working. `/stop` stops them.
+- **Ctrl-C** closes harness and restores your previous terminal screen; the agents keep working. `/stop` stops them.
 
 Everything is also a plain command, for scripts:
 

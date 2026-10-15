@@ -270,6 +270,8 @@ describe("chat with your team", () => {
 
   it("Ctrl-C closes without stopping agents; /stop stops; /setup asks for the wizard; /attach hands over the task", async () => {
     const a = await setup();
+    a.ui.stdin.write("unfinished message");
+    await flush();
     a.ui.stdin.write("\u0003");
     await flush();
     expect(a.onExit).toHaveBeenCalledWith({ action: "quit" });

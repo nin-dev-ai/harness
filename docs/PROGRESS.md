@@ -30,3 +30,4 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M21 Subscription pooling** — a role may list more routes (`pool: [codex, cursor]`); each task goes to the route with the most headroom, so work flows across subscriptions instead of stopping at one limit.
 - [x] **M22 Model tiers** — a route may map task sizes to models (`models: {S: haiku, M: sonnet, L: opus}`); the planner's size picks the model.
 - [x] **M23 Land** — `/land` brings finished integration work into your branch; an integration branch with no shared history with the base is rebuilt from it.
+- [x] **T-004 Terminal cleanup** — the TUI and setup wizard use the terminal's alternate screen, restoring the previous screen after Ctrl-C, quit, attach, or an error. The daemon continues running when the view closes.
