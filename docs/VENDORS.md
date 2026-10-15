@@ -19,6 +19,8 @@ Recorded 2026-10-14 on macOS from real runs. Fixtures live in `fixtures/<vendor>
 | Cost / tokens | `result.total_cost_usd`, `result.usage` | `turn.completed.usage` | `result.usage` |
 | Interactive (attach) | `claude --resume <id>` | `codex resume <id>` | `cursor-agent --resume <id>` |
 
+The recorded Codex 0.162.1 `--help` does not list `--yolo`; it lists `--dangerously-bypass-approvals-and-sandbox`. Cursor's recorded `--help` lists `--yolo` as an alias for `--force`. Harness uses Codex's recorded `workspace-write` mode for automated jobs and does not pass an unrecognized alias. The Phase 3 live run confirmed Codex work completes in that mode.
+
 ## Event mapping
 
 **Claude** `stream-json`: `system/init` → session; `assistant.message.content[]` → `text` = message, `tool_use` = tool_call (Write/Edit/MultiEdit/NotebookEdit carry `input.file_path` → file_change); `user.tool_use_result` ignored; `rate_limit_event` → window snapshot, and `status: rejected` → `rate_limit` (window from `rateLimitType`); `result` → result (`is_error` → ok=false).

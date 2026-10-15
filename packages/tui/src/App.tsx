@@ -8,7 +8,7 @@ import { completions, parseInput } from "./commands.js";
 import { AgentTable, type AgentRow } from "./components/AgentTable.js";
 import { ChatBar } from "./components/ChatBar.js";
 import { Help } from "./components/Help.js";
-import { BIG_BANNER, BIG_BANNER_WIDTH, GradientText, SMALL_BANNER } from "./components/Logo.js";
+import { BIG_BANNER, GradientText, pickBanner, SMALL_BANNER, XL_BANNER } from "./components/Logo.js";
 import { Activity, type ActivityItem } from "./components/Activity.js";
 import { Welcome, type WelcomeAgent } from "./components/Welcome.js";
 import { Pane, entryLine } from "./components/Pane.js";
@@ -506,8 +506,9 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   });
   const maxAgents = 8;
   const welcomeRows = 2 + 3 + Math.min(homeAgents.length, maxAgents) + (homeAgents.length > maxAgents ? 1 : 0);
-  const bigBanner = columns >= BIG_BANNER_WIDTH + 2 && rows >= BIG_BANNER.length + welcomeRows + 12;
-  const bannerRows = bigBanner ? BIG_BANNER.length : SMALL_BANNER.length;
+  const bannerTier = pickBanner(columns, rows, welcomeRows + 12, process.env.HARNESS_BANNER);
+  const banner = bannerTier === "xl" ? XL_BANNER : bannerTier === "big" ? BIG_BANNER : bannerTier === "small" ? SMALL_BANNER : [];
+  const bannerRows = banner.length;
   const activity: ActivityItem[] = workers
     .filter((w) => w.state === "RUNNING")
     .slice(0, 5)
@@ -606,7 +607,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   const shortFolder = snap.project.root.replace(os.homedir(), "~");
   const header = fullHeader ? (
     <Box flexDirection="column">
-      {(bigBanner ? BIG_BANNER : SMALL_BANNER).map((l, i) => (
+      {banner.map((l, i) => (
         <Text key={i}>
           {gradient(l, t.gradient).map((g, k) => (
             <Text key={k} color={g.color} bold>
@@ -617,7 +618,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
       ))}
       <Text> </Text>
       <Welcome t={t} version={version} project={snap.project.name} folder={shortFolder} branch={snap.project.integrationBranch} agents={homeAgents} width={columns} maxAgents={maxAgents} unlanded={store.unlanded} />
-      <Text color={C.dim}> Describe what you want built and I'll split it across your agents.  <Text color={t.accent}>/agents</Text> who is doing what · <Text color={t.accent}>/usage</Text> limits · <Text color={t.accent}>Tab</Text> pick an agent</Text>
+      <Text color={C.dim}> Describe what you want built and a primary agent will take it.  <Text color={t.accent}>/agents</Text> who is doing what · <Text color={t.accent}>/usage</Text> limits · <Text color={t.accent}>Tab</Text> pick an agent</Text>
     </Box>
   ) : (
     <Text wrap="truncate-end">

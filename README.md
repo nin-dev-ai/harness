@@ -92,6 +92,13 @@ harness pr             # draft PR from harness/integration (through gh). Merging
 ```
 
 A real end-to-end run with Claude Code (spends a little quota): `bash scripts/live-demo.sh`.
+To verify all three subscriptions and automatic delivery in a disposable repository, run `pnpm build && bash scripts/phase3-live-demo.sh`. A rate-limited route hands its task to another route in the pool.
+
+## Banner size and terminal text
+
+The welcome screen picks the largest wordmark that fits: XL (12 rows), big (6 rows), small (3 rows), or none. Set `HARNESS_BANNER=xl|big|small|off` to cap the preferred size; Harness falls back to a smaller one if the window cannot fit it. For example, `HARNESS_BANNER=big harness` keeps the six-row logo in a large terminal.
+
+To enlarge text throughout the UI, change your terminal's font size. On macOS Terminal or iTerm2, `Cmd-+` usually increases it. Harness cannot change the terminal's font size itself.
 
 ## How work flows
 

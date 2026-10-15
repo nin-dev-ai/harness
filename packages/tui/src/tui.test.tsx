@@ -3,6 +3,7 @@ import { render } from "ink-testing-library";
 import type { HarnessEvent } from "@harness/core";
 import type { StatusSnapshot } from "@harness/daemon";
 import { App } from "./App.js";
+import { BIG_BANNER, pickBanner, XL_BANNER } from "./components/Logo.js";
 import { completions, parseInput } from "./commands.js";
 import { gradient } from "./theme.js";
 import { TuiStore, type TuiApi } from "./store.js";
@@ -80,11 +81,21 @@ const send = async (ui: ReturnType<typeof render>, text: string) => {
 const ev = (type: string, taskId: string, workerId: string, payload: unknown): HarnessEvent => ({ ts: NOW, projectId: "p", type, taskId, workerId, runId: `R-${taskId}-1`, payload }) as unknown as HarnessEvent;
 
 describe("chat with your team", () => {
+  it("chooses XL, big, small or no banner according to available space and preference", () => {
+    expect(XL_BANNER).toHaveLength(BIG_BANNER.length * 2);
+    expect(pickBanner(150, 46, 22)).toBe("xl");
+    expect(pickBanner(100, 46, 22)).toBe("big");
+    expect(pickBanner(50, 46, 22)).toBe("small");
+    expect(pickBanner(20, 46, 22)).toBe("off");
+    expect(pickBanner(150, 46, 22, "big")).toBe("big");
+    expect(pickBanner(150, 46, 22, "off")).toBe("off");
+  });
+
   it("home is the Claude-Code-style welcome: huge banner, your agents with tool and model, then the chat box", async () => {
     const { ui, store } = await setup(() => ({ ...BASE(), tasks: [], workers: BASE().workers.map((w) => ({ ...w, state: "IDLE" as const, taskId: null, currentRun: null, elapsedMs: null })) }), 150, 46);
     const f = ui.lastFrame()!;
-    expect(f).toContain("██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗");
-    expect(f).toContain("╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝");
+    expect(f).toContain(XL_BANNER[0]);
+    expect(f).toContain(XL_BANNER.at(-1));
     expect(f).toContain("✦ harness v0.1.0");
     expect(f).toContain("2 commits ready to /land");
     expect(f).toContain("market-terminal");
@@ -102,10 +113,10 @@ describe("chat with your team", () => {
 
   it("every launch shows the banner, even on a project with past tasks, until you start typing", async () => {
     const { ui, store } = await setup(undefined, 150, 46);
-    expect(ui.lastFrame()!).toContain("██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗");
+    expect(ui.lastFrame()!).toContain(XL_BANNER[0]);
     ui.stdin.write("\t");
     await new Promise((r) => setTimeout(r, 50));
-    expect(ui.lastFrame()!).not.toContain("██╗  ██╗ █████╗ ██████╗");
+    expect(ui.lastFrame()!).not.toContain(XL_BANNER[0]);
     store.stop();
   });
 
