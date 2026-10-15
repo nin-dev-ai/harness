@@ -13,6 +13,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "zoom", args: "", desc: "the selected agent's live session full screen (esc back)" },
   { name: "windows", args: "", desc: "open a real terminal window per agent, each following its live session" },
   { name: "board", args: "", desc: "the team board (HARNESS.md): asks, who does what, what is done, notes" },
+  { name: "fact", args: "[text | -n]", desc: "project facts every agent reads: list, add text, or -n to remove number n" },
   { name: "report", args: "", desc: "what the latest request cost per tool, and the quality ledger" },
   { name: "tasks", args: "", desc: "every task and its state" },
   { name: "task", args: "<title> [@agent]", desc: "add one task; harness picks the agent unless you name one" },

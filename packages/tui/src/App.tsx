@@ -204,6 +204,12 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         if (r.status === "conflict") return noteTeam("warn", `landing would conflict in ${r.files?.join(", ")}; nothing changed. Merge ${r.from} by hand.`);
         return noteTeam(r.status === "nothing" ? "sys" : "warn", r.detail ?? r.status);
       }
+      case "fact": {
+        const rm = /^-(\d+)$/.exec(a.trim());
+        const r = await call<{ facts: string[] }>("facts", rm ? { remove: Number(rm[1]) } : a.trim() ? { add: a.trim() } : {});
+        if (!r) return;
+        return noteTeam("sys", r.facts.length ? `project facts:\n${r.facts.map((f, i) => `${i + 1}. ${f}`).join("\n")}` : "no project facts yet: /fact <something every agent should know>");
+      }
       case "report":
       case "board": {
         const r = await call<{ text: string }>(p.name);

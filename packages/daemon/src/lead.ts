@@ -1,7 +1,7 @@
 import { buildLeadPrompt, LEAD_JSON_SCHEMA, validateLead, type LeadOutput } from "@harness/planner";
 import type { ProjectRuntime } from "./project.js";
 import type { Supervisor } from "./supervisor.js";
-import { boardData, boardForPrompt } from "./board.js";
+import { boardData, boardForPrompt, projectFacts } from "./board.js";
 import { pickRole, roleInfos } from "./planning.js";
 
 /** A batch of work the lead looks at once it settles: one chat request, or one round of the lead's own follow-ups. */
@@ -108,7 +108,7 @@ export class Lead {
       // A broken lead reply never blocks the team: report it and move on.
       const status = `the lead's reply could not be used (${v.errors.join("; ").slice(0, 200)})`;
       this.p.emit("lead.reported", { status, followups: [], batch: batch.key, round: batch.round, done: false });
-      return { status, done: false, followups: [] };
+      return { status, done: false, followups: [], facts: [] };
     }
     const ids: string[] = [];
     for (const f of v.lead.followups) {
@@ -117,6 +117,8 @@ export class Lead {
       if (picked) this.p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
       ids.push(t.id);
     }
+    const known = new Set(projectFacts(this.p).map((f) => f.toLowerCase()));
+    for (const f of v.lead.facts) if (!known.has(f.toLowerCase())) this.p.emit("fact.added", { text: f, by: "lead" });
     this.p.emit("lead.reported", { status: v.lead.status, followups: ids, batch: batch.key, round: batch.round, done: v.lead.done });
     if (ids.length) this.onTasks(ids);
     return v.lead;

@@ -12,7 +12,7 @@ import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { pickRole, Planner } from "./planning.js";
 import { sizeOfRequest, titleOf } from "@harness/planner";
-import { BOARD_FILE, boardData, renderBoard } from "./board.js";
+import { BOARD_FILE, boardData, projectFacts, renderBoard } from "./board.js";
 import { Lead } from "./lead.js";
 import { qualityLedger, renderReport, requestReport } from "./report.js";
 import { suggestRoutes } from "./suggest.js";
@@ -373,6 +373,19 @@ export class EnginePlugin implements DaemonPlugin {
         const r = requestReport(p, a.index ?? -1);
         const q = qualityLedger(p);
         return { report: r ?? null, quality: q, text: renderReport(r, q) };
+      },
+      /** Project facts: list, add (by the person) or remove (by number or text). */
+      facts: (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ add: z.string().min(3).max(300).optional(), remove: z.union([z.number().int(), z.string()]).optional() }), params);
+        const facts = projectFacts(p);
+        if (a.add && !facts.some((f) => f.toLowerCase() === a.add!.trim().toLowerCase())) p.emit("fact.added", { text: a.add.replace(/\s+/g, " ").trim(), by: "person" });
+        if (a.remove !== undefined) {
+          const text = typeof a.remove === "number" ? facts[a.remove - 1] : facts.find((f) => f.toLowerCase() === String(a.remove).toLowerCase());
+          if (!text) throw new HarnessError("NOT_FOUND", `no fact ${a.remove}`);
+          p.emit("fact.removed", { text });
+        }
+        return { facts: projectFacts(p) };
       },
       /** The team board (HARNESS.md) as Markdown. */
       board: (params, ctx) => {

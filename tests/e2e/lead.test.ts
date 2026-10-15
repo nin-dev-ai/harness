@@ -4,7 +4,7 @@ import { byMode, createScenario, DEFAULT_CONFIG, startHarness, writes, type Harn
 
 /** M20: the lead checks each settled batch, reports, and sets bounded follow-ups. */
 const CONFIG = DEFAULT_CONFIG.replace("roles:\n", "roles:\n  lead:\n    route: rev\n    mode: readonly\n");
-const leadSays = (status: string, followups: unknown[] = [], done = false) => ({ steps: [{ kind: "result" as const, ok: true, summary: status, structured: { status, done, followups } }] });
+const leadSays = (status: string, followups: unknown[] = [], done = false, facts: string[] = []) => ({ steps: [{ kind: "result" as const, ok: true, summary: status, structured: { status, done, followups, facts } }] });
 
 describe("lead (compiler) agent", () => {
   let s: Scenario;
@@ -26,7 +26,7 @@ describe("lead (compiler) agent", () => {
             { title: "Extra 2", role: "backend", description: "x", acceptance: [], files_hint: [] },
             { title: "Extra 3", role: "backend", description: "x", acceptance: [], files_hint: [] },
           ])
-        : leadSays("All done.", [{ title: "Should be ignored", role: "backend", description: "", acceptance: [], files_hint: [] }]),
+        : leadSays("All done.", [{ title: "Should be ignored", role: "backend", description: "", acceptance: [], files_hint: [] }], false, ["Prices are integer cents everywhere", "Tests run with node --test", "x", "Money helpers live in server/money.js", "A fourth confirmed fact is over the cap"]),
     );
     s.scripts.set("T-001", byMode(writes({ "src/server/feed.ts": "feed\n" })));
     s.scripts.set("T-002", byMode(writes({ "src/ui/feed.ts": "err\n" })));
@@ -65,6 +65,10 @@ describe("lead (compiler) agent", () => {
     expect(text).toContain("# Report · Fix the 500 in src/server/feed.ts");
     expect(text).toContain("- fake: 4/4 (100%), 1 attempt on average");
     expect(text).toContain("A one-agent baseline");
+    // The lead's confirmed facts are kept (at most 3 per report, too-short ones dropped).
+    expect(renderBoard(boardData(h.project))).toContain("## Project facts");
+    const { projectFacts } = await import("@harness/daemon");
+    expect(projectFacts(h.project)).toEqual(["Prices are integer cents everywhere", "Tests run with node --test", "Money helpers live in server/money.js"]);
   });
 
   it("without a lead role nothing extra runs", async () => {
@@ -77,4 +81,25 @@ describe("lead (compiler) agent", () => {
     await h.engine.idle();
     expect(h.project.store.events.list({ projectId: h.project.id, types: ["lead.reported"] })).toEqual([]);
   });
+
+  it("project facts: the lead and the person add them, every later prompt carries them, the newest 15 are kept", async () => {
+    s = createScenario({ config: CONFIG });
+    h = await startHarness(s);
+    const ctx = { attended: true, subscribe: () => () => undefined };
+    const call = h.daemon.handlers().facts!;
+    await call({ projectId: h.project.id, add: "Use pnpm, never npm" }, ctx);
+    await call({ projectId: h.project.id, add: "use PNPM, never npm" }, ctx);
+    for (let i = 0; i < 16; i++) await call({ projectId: h.project.id, add: `fact number ${i}` }, ctx);
+    const r = (await call({ projectId: h.project.id, remove: 1 }, ctx)) as { facts: string[] };
+    expect(r.facts).toHaveLength(14);
+    expect(r.facts[0]).toBe("fact number 2");
+    expect(r.facts).not.toContain("Use pnpm, never npm");
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    const t = h.project.createTask({ title: "A", role: "backend", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    expect(s.adapters.get("slow")!.requests[0]!.prompt).toContain("## Project facts");
+    expect(s.adapters.get("slow")!.requests[0]!.prompt).toContain("14. fact number 15");
+  });
 });
+

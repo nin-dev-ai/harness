@@ -14,10 +14,27 @@ import type { ProjectRuntime } from "./project.js";
 
 export const BOARD_FILE = ".harness/HARNESS.md";
 
+/** Project facts kept: newest win; older ones drop off so every prompt stays small. */
+export const MAX_FACTS = 15;
+
+/** Durable facts about the project (from the lead or the person), oldest first, deduplicated, capped. */
+export function projectFacts(p: ProjectRuntime): string[] {
+  const facts: string[] = [];
+  for (const e of p.store.events.list({ projectId: p.id, types: ["fact.added", "fact.removed"] })) {
+    const text = (e.payload as { text: string }).text;
+    const i = facts.findIndex((f) => f.toLowerCase() === text.toLowerCase());
+    if (i >= 0) facts.splice(i, 1);
+    if (e.type === "fact.added") facts.push(text);
+    // Over the cap the oldest fact drops for good (removing a newer one never brings it back).
+    if (facts.length > MAX_FACTS) facts.shift();
+  }
+  return facts;
+}
+
 /** Event types that change what the board shows. */
 const BOARD_EVENTS = new Set([
   "team.request", "task.created", "task.state_changed", "task.routed", "task.needs_human", "run.started", "run.finished",
-  "branch.merged", "worker.assigned", "review.passed", "review.blocked", "lead.reported",
+  "branch.merged", "worker.assigned", "review.passed", "review.blocked", "lead.reported", "fact.added", "fact.removed",
 ]);
 
 const IMPLEMENT = new Set(["initial", "repair", "resume"]);
@@ -44,6 +61,8 @@ export interface BoardData {
   lead?: string | undefined;
   /** Acceptance criteria of the latest request (and the lead's follow-ups for it), each with its task's progress. */
   checklist?: { request: string; items: ChecklistItem[] } | undefined;
+  /** Durable project facts carried into every prompt. */
+  facts?: string[] | undefined;
 }
 
 export interface ChecklistItem {
@@ -86,6 +105,7 @@ const WAITING = new Set(["DRAFT", "QUEUED", "BLOCKED", "PAUSED", "STALE"]);
 /** Render the board as Markdown. Pure and deterministic. */
 export function renderBoard(d: BoardData): string {
   const out: string[] = [`# Team board · ${d.project}`, "", `_Kept by harness from its event log; updated ${d.updatedAt}. Agents: read it, do not edit it. Leave notes with \`NOTE:\` lines in your final summary._`, ""];
+  if (d.facts?.length) out.push("## Project facts", "_True for every task here. From the lead and the person; add with `/fact`._", ...d.facts.map((f, i) => `${i + 1}. ${f}`), "");
   out.push("## What the person asked for");
   out.push(...(d.requests.length ? d.requests.slice(-5).map((r) => `- ${clip(oneLine(r.text), 300)}`) : ["- (nothing yet)"]), "");
   if (d.checklist?.items.length) {
@@ -161,7 +181,7 @@ export function boardData(p: ProjectRuntime): BoardData {
     checklist = { request: lastReq.payload.text, items };
   }
   const tasks: BoardTask[] = p.tasks().filter((t: Task) => t.state !== "CANCELLED").map((t) => ({ id: t.id, title: t.title, role: t.role, state: t.state, dependsOn: t.dependsOn, ...byTask.get(t.id) }));
-  return { project: p.config.project, updatedAt: p.now(), requests, tasks, notes, lead, checklist };
+  return { project: p.config.project, updatedAt: p.now(), requests, tasks, notes, lead, checklist, facts: projectFacts(p) };
 }
 
 /** The board as agents see it in their prompt: the newest content, capped in size. */

@@ -44,4 +44,5 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M35 Request checklist** — the board lists every acceptance criterion of the latest request and its follow-ups, ticked from task states; the lead works from it.
 - [x] **M36 Report** — `harness report` / `/report`: per-task and per-subscription time, tokens and measured usage for a request, plus the quality ledger (merged within 3 attempts by vendor).
 - [x] **M37 Vendor drift check** — `doctor` checks every flag harness passes against each CLI's live `--help` (missing flag blocks; newer version warns); Claude Code 2.1.301 help re-recorded.
+- [x] **M38 Project facts** — durable facts at the top of the board and in every prompt; the lead adds confirmed ones (≤3 per report), the person uses `/fact` or `harness facts`; capped at 15.
 

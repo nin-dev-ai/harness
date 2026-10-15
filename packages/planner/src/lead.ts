@@ -17,16 +17,19 @@ export const LeadOutputSchema = z.object({
   status: z.string().min(1),
   done: z.boolean().default(false),
   followups: z.array(FollowupSchema).default([]),
+  /** Durable facts about the project worth carrying into every future prompt. */
+  facts: z.array(z.string()).default([]),
 });
 export type LeadOutput = z.infer<typeof LeadOutputSchema>;
 
 export const LEAD_JSON_SCHEMA = {
   type: "object",
-  required: ["status", "done", "followups"],
+  required: ["status", "done", "followups", "facts"],
   additionalProperties: false,
   properties: {
     status: { type: "string" },
     done: { type: "boolean" },
+    facts: { type: "array", items: { type: "string" } },
     followups: {
       type: "array",
       items: {
@@ -87,5 +90,6 @@ export function validateLead(structured: unknown, text: string, roles: RoleInfo[
   if (!r.success) return { ok: false, errors: r.error.issues.map((x) => `${x.path.join(".") || "(root)"}: ${x.message}`) };
   const writers = new Set(roles.filter((x) => x.mode === "write").map((x) => x.name));
   const followups = (r.data.done ? [] : r.data.followups).slice(0, Math.max(0, max)).map((f) => ({ ...f, role: writers.has(f.role) ? f.role : "" }));
-  return { ok: true, lead: { ...r.data, followups } };
+  const facts = r.data.facts.map((f) => f.replace(/\s+/g, " ").trim().slice(0, 200)).filter((f) => f.length >= 8).slice(0, 3);
+  return { ok: true, lead: { ...r.data, followups, facts } };
 }

@@ -154,3 +154,6 @@ Anthropic's long-running harness keeps a machine-readable feature list with pass
 
 ## 2026-10-16 · M36 Report: who did what, what it cost, how often it worked
 Pooling only proves itself with numbers. `harness report` / `/report` shows the latest request (or `--request n`): each task's role, route, model, state, attempts, working time and vendor-reported tokens; totals per subscription with the measured 5h-window delta where the vendor reports usage ("not measured" otherwise, never 0); planning and lead runs; and the lead's status. It ends with the PRD quality metric over the project's history (merged within 3 attempts, by implementing vendor). A one-agent baseline is not run automatically; the report says so rather than implying the team wins.
+
+## 2026-10-16 · M38 Project facts
+The board's notes belong to one request; some knowledge should outlive it (conventions, how to run things, gotchas). Project facts are a short list at the top of the board, so every agent prompt carries them. The lead may add up to 3 per report, only things it confirmed and not already listed; the person adds or removes them with `/fact` or `harness facts`. Facts are events (`fact.added`, `fact.removed`), deduplicated case-insensitively and capped at 15: over the cap the oldest drops for good.

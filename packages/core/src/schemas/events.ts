@@ -24,6 +24,8 @@ export const EVENT_PAYLOADS = {
   "task.routed": z.object({ role: s, reason: s }),
   "model.escalated": z.object({ from: z.enum(["S", "M", "L"]), to: z.enum(["S", "M", "L"]), reason: s }),
   "session.refreshed": z.object({ sessionId: s, tokens: z.number(), budget: z.number() }),
+  "fact.added": z.object({ text: s, by: z.enum(["lead", "person"]) }),
+  "fact.removed": z.object({ text: s }),
   "team.request": z.object({ text: s, taskIds: z.array(s).default([]) }),
   "lead.reported": z.object({ status: s, followups: z.array(s).default([]), batch: s.optional(), round: z.number().int().default(0), done: z.boolean().default(false) }),
   "plan.adjusted": z.object({ kind: z.enum(["merged", "chained"]), first: s, second: s, files: z.array(s) }),
