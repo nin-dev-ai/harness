@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
@@ -7,14 +8,15 @@ import { completions, parseInput } from "./commands.js";
 import { AgentTable, type AgentRow } from "./components/AgentTable.js";
 import { ChatBar } from "./components/ChatBar.js";
 import { Help } from "./components/Help.js";
-import { BANNER, GradientText } from "./components/Logo.js";
+import { BIG_BANNER, BIG_BANNER_WIDTH, GradientText, SMALL_BANNER } from "./components/Logo.js";
+import { Activity, type ActivityItem } from "./components/Activity.js";
+import { Welcome, type WelcomeAgent } from "./components/Welcome.js";
 import { Pane, entryLine } from "./components/Pane.js";
 import { ReviewView, type ReviewData } from "./components/ReviewView.js";
 import { StatusLine } from "./components/StatusLine.js";
-import { UsageLine } from "./components/UsageLine.js";
 import { duration, resetText } from "./format.js";
 import type { TuiStore } from "./store.js";
-import { C, stateColor, THEME_NAMES, THEMES, type Theme } from "./theme.js";
+import { C, gradient, stateColor, THEME_NAMES, THEMES, VENDOR, type Theme } from "./theme.js";
 
 /** Why the UI closed: the caller acts on it (attach runs a CLI, stop stops the daemon). */
 export type UiExit = { action: "quit" } | { action: "stop" } | { action: "setup" } | { action: "attach"; target: string };
@@ -28,9 +30,10 @@ export interface AppProps {
   onTheme?(name: string): void;
   /** Shown once in the team feed when the screen opens. */
   welcome?: string;
+  version?: string;
 }
 
-type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "agents" } | { kind: "tasks" } | { kind: "review" | "diff"; data: ReviewData };
+type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "agents" } | { kind: "tasks" } | { kind: "panes" } | { kind: "zoom" } | { kind: "review" | "diff"; data: ReviewData };
 
 const taskId = (s: string) => {
   const m = /^T?-?(\d+)$/i.exec(s.trim());
@@ -58,7 +61,7 @@ function statusOf(w: WorkerView): { label: string; color?: string | undefined } 
  * bar sends your message to the whole team (the planner splits it) or, after
  * Tab, straight to one agent.
  */
-export function App({ store, onExit, size, theme: themeName, onTheme, welcome }: AppProps) {
+export function App({ store, onExit, size, theme: themeName, onTheme, welcome, version = "0.1.0" }: AppProps) {
   const [, force] = useReducer((n: number) => n + 1, 0);
   useEffect(() => store.onChange(force), [store]);
   const snap: StatusSnapshot | null = store.snapshot;
@@ -69,7 +72,6 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
 
   const [t, setTheme] = useState<Theme>(THEMES[themeName ?? "neon"] ?? THEMES.neon!);
   const [focus, setFocus] = useState(0); // 0 = team, i = workers[i - 1]
-  const [zoom, setZoom] = useState(false);
   const [input, setInput] = useState("");
   const [cursor, setCursor] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
@@ -108,7 +110,9 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   }, [ids, store]);
 
   const writeRoles = [...new Set(workers.map((w) => w.role))].filter((r) => r !== "reviewer" && r !== "planner");
-  const noteTeam = (kind: Parameters<TuiStore["note"]>[1], text: string, detail?: string) => store.note("_team", kind, text, detail);
+  // Notes land in whatever feed is on screen: the team's, or the focused agent's.
+  const viewKey = focusWorker ? focusWorker.id : "_team";
+  const noteTeam = (kind: Parameters<TuiStore["note"]>[1], text: string, detail?: string) => store.note(viewKey, kind, text, detail);
   const call = async <T,>(method: string, params: Record<string, unknown> = {}): Promise<T | undefined> => {
     try {
       const r = await store.api.call<T>(method, params);
@@ -126,7 +130,6 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
   const cycle = (by: number) => {
     const n = workers.length + 1;
     setFocus((f) => (((f + by) % n) + n) % n);
-    setZoom(false);
   };
   const currentTask = focusWorker ? paneTask(focusWorker)?.id : undefined;
   const openReview = async (kind: "review" | "diff", id?: string) => {
@@ -144,7 +147,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
     noteTeam("you", text);
     noteTeam("sys", "the planner is splitting this across your agents…");
     const r = await call<{ summary: string; tasks: { id: string; title: string; role: string; dependsOn: string[] }[] }>("dispatch", { document: text, source: "chat" });
-    store.local.set("_team", (store.local.get("_team") ?? []).filter((e) => !e.text.startsWith("the planner is splitting")));
+    store.local.set(viewKey, (store.local.get(viewKey) ?? []).filter((e) => !e.text.startsWith("the planner is splitting")));
     if (!r) return;
     if (r.summary) noteTeam("say", r.summary);
     for (const x of r.tasks) noteTeam("sys", `→ ${x.role}: ${x.title}${x.dependsOn.length ? ` (after ${x.dependsOn.join(", ")})` : ""}`);
@@ -193,9 +196,11 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
       case "clear":
         store.local.clear();
         return force();
+      case "panes":
+        return setOverlay({ kind: "panes" });
       case "zoom":
         if (!focusWorker) return noteTeam("warn", "Tab to an agent first, then /zoom");
-        return setZoom((z) => !z);
+        return setOverlay({ kind: "zoom" });
       case "theme": {
         const name = a || THEME_NAMES[(THEME_NAMES.indexOf(t.name) + 1) % THEME_NAMES.length]!;
         const next = THEMES[name];
@@ -334,7 +339,6 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
     if (key.ctrl && ch === "d") return quit({ action: "quit" });
     if (key.escape) {
       if (overlay.kind !== "none") return setOverlay({ kind: "none" });
-      if (zoom) return setZoom(false);
       setInput("");
       setCursor(0);
       return;
@@ -398,18 +402,19 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
 
   if (!snap) return <Text>{store.error ? `error: ${store.error}` : "connecting to the daemon…"}</Text>;
 
-  // ── data for the panes ────────────────────────────────────────────────
+  // ── data ──────────────────────────────────────────────────────────────
   const routeModel = (route: string | null) => snap.routes.find((r) => r.route === route)?.model ?? "default";
   const working = workers.filter((w) => w.state === "RUNNING").length;
   const queued = tasks.filter((x) => ["QUEUED", "PAUSED", "REPAIRING"].includes(x.state)).length;
   const needs = tasks.filter((x) => x.state === "NEEDS_HUMAN").length + snap.approvals.length;
+  const paused = snap.routes.filter((r) => r.pausedUntil).map((r) => r.vendor);
   const toasts = store.toasts.filter((x) => Date.now() - x.at < 8000).slice(-2);
-  const feed = (store.local.get("_team") ?? []).slice(-7);
-  const hasAnything = tasks.length > 0 || feed.length > 0;
-  const feedRows = hasAnything ? Math.max(feed.length, 0) : 4;
+  const teamFeed = store.local.get("_team") ?? [];
+  const focusTaskId = focusWorker ? paneTask(focusWorker)?.id : undefined;
+  const feedList = focusWorker ? store.stream(focusWorker.id, focusTaskId) : teamFeed;
+  const fresh = tasks.length === 0 && teamFeed.length === 0;
+  const home = overlay.kind === "none";
   const menuRows = input.startsWith("/") ? Math.min(7, completions(input).length) : 0;
-  const reserved = 2 /* header + usage */ + 1 /* status */ + 3 /* chat bar */ + menuRows + feedRows + toasts.length;
-  const areaHeight = Math.max(8, rows - reserved);
 
   const rowsFor = (): AgentRow[] =>
     workers.map((w) => {
@@ -466,6 +471,30 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
     );
   };
 
+
+  const homeAgents: WelcomeAgent[] = workers.map((w) => {
+    const st = statusOf(w);
+    return { id: w.id, vendor: w.vendor, model: routeModel(w.route), status: st.label, statusColor: st.color, focused: focusWorker?.id === w.id };
+  });
+  const maxAgents = 8;
+  const welcomeRows = 2 + 3 + Math.min(homeAgents.length, maxAgents) + (homeAgents.length > maxAgents ? 1 : 0);
+  const bigBanner = columns >= BIG_BANNER_WIDTH + 2;
+  const bannerRows = bigBanner ? BIG_BANNER.length : SMALL_BANNER.length;
+  const activity: ActivityItem[] = workers
+    .filter((w) => w.state === "RUNNING")
+    .slice(0, 5)
+    .map((w) => {
+      const task = paneTask(w);
+      const act = task ? store.lastActivity(task.id) : undefined;
+      const now = act ? (act.kind === "tool" ? `${act.text} ${act.detail ?? ""}`.trim() : act.kind === "edit" ? `editing ${act.text}` : act.kind === "check" ? act.text : act.text.replace(/\s+/g, " ")) : "";
+      return { id: w.id, vendor: w.vendor, what: task ? `${task.id} ${task.title}` : statusOf(w).label, now: now.slice(0, 60), time: duration(w.elapsedMs), focused: focusWorker?.id === w.id };
+    });
+  const fullHeader = home && fresh && rows >= bannerRows + welcomeRows + 12;
+  const headerRows = fullHeader ? bannerRows + 1 + welcomeRows + 2 : 1;
+  const bottomRows = 3 + menuRows + 1 + toasts.length + (home ? activity.length : 0);
+  const areaHeight = Math.max(8, rows - headerRows - bottomRows);
+  const feedRows = Math.max(0, Math.min(feedList.length, focusWorker ? 12 : 8, areaHeight));
+
   // ── the main area: panes, or an overlay ───────────────────────────────
   let area: React.ReactNode;
   if (overlay.kind === "help") area = <Help t={t} />;
@@ -504,8 +533,8 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
         ))}
       </Box>
     );
-  else if (zoom && focusWorker) area = paneFor(focusWorker, columns, areaHeight, true, true);
-  else {
+  else if (overlay.kind === "zoom" && focusWorker) area = paneFor(focusWorker, columns, areaHeight, true, true);
+  else if (overlay.kind === "panes") {
     const n = Math.max(1, workers.length);
     // Balance the grid: 5 agents on a wide screen are 3 + 2, not 4 + 1.
     const maxCols = Math.max(1, Math.min(n, Math.floor(columns / 36)));
@@ -532,44 +561,82 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
         ? "the reviewer works on its own; Tab to another agent"
         : `message ${focusWorker.id}…`
     : workers.length
-      ? `tell your ${workers.length} agent${workers.length === 1 ? "" : "s"} what to build…   Tab picks one · / commands`
+      ? "tell your team what to build…"
       : "no agents yet: /setup";
+
+  const shortFolder = snap.project.root.replace(os.homedir(), "~");
+  const header = fullHeader ? (
+    <Box flexDirection="column">
+      {(bigBanner ? BIG_BANNER : SMALL_BANNER).map((l, i) => (
+        <Text key={i}>
+          {gradient(l, t.gradient).map((g, k) => (
+            <Text key={k} color={g.color} bold>
+              {g.ch}
+            </Text>
+          ))}
+        </Text>
+      ))}
+      <Text> </Text>
+      <Welcome t={t} version={version} project={snap.project.name} folder={shortFolder} branch={snap.project.integrationBranch} agents={homeAgents} width={columns} maxAgents={maxAgents} />
+      <Text color={C.dim}> Describe what you want built and I'll split it across your agents.  <Text color={t.accent}>/agents</Text> who is doing what · <Text color={t.accent}>/usage</Text> limits · <Text color={t.accent}>Tab</Text> pick an agent</Text>
+    </Box>
+  ) : (
+    <Text wrap="truncate-end">
+      <GradientText text="✦ harness" t={t} bold />
+      <Text color={C.dim}> {snap.project.name}  </Text>
+      {homeAgents.map((a) => {
+        const v = VENDOR[a.vendor] ?? VENDOR.fake!;
+        return (
+          <Text key={a.id} color={a.focused ? undefined : C.dim} bold={a.focused}>
+            <Text color={v.color}>{v.icon}</Text> {a.id}
+            {"  "}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+
+  const feedNode = (
+    <Box flexDirection="column">
+      {focusWorker && feedList.length === 0 ? (
+        <Text color={C.dim}> {focusWorker.id} has no session yet. Message it, or give the team work.</Text>
+      ) : null}
+      {feedList.slice(-feedRows).map((e, i) => {
+        const l = entryLine(e, t);
+        return l ? (
+          <Text key={i} wrap="truncate-end">
+            {" "}
+            <Text color={l.prefixColor} dimColor={l.dim}>
+              {l.prefix}
+            </Text>
+            <Text color={l.color} dimColor={l.dim}>
+              {l.text}
+            </Text>
+          </Text>
+        ) : null;
+      })}
+    </Box>
+  );
 
   return (
     <Box flexDirection="column" width={columns}>
-      <Box width={columns} justifyContent="space-between">
-        <Text>
-          <GradientText text="✦ harness" t={t} bold />
-          <Text color={C.dim}> · {snap.project.name}</Text>
-        </Text>
-        <Text color={C.dim}>{new Date().toTimeString().slice(0, 5)}</Text>
-      </Box>
-      <UsageLine routes={snap.routes} now={snap.now} t={t} />
-      <Box height={areaHeight} flexDirection="column" overflow="hidden">
-        {area}
-      </Box>
-      {!hasAnything ? (
-        <Box flexDirection="column" paddingX={1}>
-          {BANNER.map((l, i) => (
-            <GradientText key={i} text={l} t={t} bold />
-          ))}
-          <Text color={C.dim}>Describe what you want. I'll split it across your agents and open their sessions.</Text>
+      {header}
+      {home ? (
+        <Box flexDirection="column" flexGrow={1}>
+          {focusWorker ? (
+            <Text color={C.dim}>
+              {" "}
+              ── {focusWorker.id} · {statusOf(focusWorker).label}
+              {paneTask(focusWorker) ? ` · ${paneTask(focusWorker)!.id} ${paneTask(focusWorker)!.title}` : ""} ──
+            </Text>
+          ) : null}
+          {feedNode}
+          <Activity items={activity} frame={frame} />
         </Box>
       ) : (
-        feed.map((e, i) => {
-          const l = entryLine(e, t);
-          return l ? (
-            <Text key={i} wrap="truncate-end">
-              {" "}
-              <Text color={l.prefixColor} dimColor={l.dim}>
-                {l.prefix}
-              </Text>
-              <Text color={l.color} dimColor={l.dim}>
-                {l.text}
-              </Text>
-            </Text>
-          ) : null;
-        })
+        <Box height={areaHeight} flexDirection="column" overflow="hidden">
+          {area}
+        </Box>
       )}
       {toasts.map((x, i) => (
         <Text key={i} wrap="truncate-end" color={x.kind === "err" ? C.bad : x.kind === "warn" ? C.warn : C.dim}>
@@ -583,11 +650,10 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome }:
         width={columns}
         segments={[
           `✦ ${snap.project.name}`,
-          `⎇ ${snap.project.integrationBranch}`,
           snap.scheduler.running ? "▶ running" : "■ stopped",
-          `${working} working · ${queued} queued${needs ? ` · ${needs} need you` : ""}`,
+          `${working} working · ${queued} queued${needs ? ` · ${needs} need you` : ""}${paused.length ? ` · ${paused.join(", ")} paused` : ""}`,
         ]}
-        right="Tab agents · / commands · ^C quit "
+        right="/agents · /usage · /help · Tab · ^C quit "
       />
     </Box>
   );

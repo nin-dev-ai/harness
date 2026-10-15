@@ -57,13 +57,13 @@ function fakeApi(snapshot: () => StatusSnapshot = BASE) {
 }
 
 const flush = (ms = 40) => new Promise((r) => setTimeout(r, ms));
-async function setup(snapshot?: () => StatusSnapshot, columns = 150) {
+async function setup(snapshot?: () => StatusSnapshot, columns = 150, rows = 36) {
   const f = fakeApi(snapshot);
   const store = new TuiStore(f.api);
   await store.start();
   const onExit = vi.fn();
   const onTheme = vi.fn();
-  const ui = render(<App store={store} onExit={onExit} onTheme={onTheme} size={{ columns, rows: 36 }} />);
+  const ui = render(<App store={store} onExit={onExit} onTheme={onTheme} size={{ columns, rows }} />);
   await flush(500);
   return { ...f, store, ui, onExit, onTheme };
 }
@@ -76,33 +76,52 @@ const send = async (ui: ReturnType<typeof render>, text: string) => {
 const ev = (type: string, taskId: string, workerId: string, payload: unknown): HarnessEvent => ({ ts: NOW, projectId: "p", type, taskId, workerId, runId: `R-${taskId}-1`, payload }) as unknown as HarnessEvent;
 
 describe("chat with your team", () => {
-  it("opens one live pane per agent, in each tool's own session, with usage on top", async () => {
-    const { ui, emit, store } = await setup();
-    emit(ev("run.event", "T-004", "frontend-1", { event: { type: "tool_call", runId: "R-T-004-1", tool: "Bash", summary: "npm test" } }));
+  it("home is the Claude-Code-style welcome: huge banner, your agents with tool and model, then the chat box", async () => {
+    const { ui, store } = await setup(() => ({ ...BASE(), tasks: [], workers: BASE().workers.map((w) => ({ ...w, state: "IDLE" as const, taskId: null, currentRun: null, elapsedMs: null })) }), 150, 46);
+    const f = ui.lastFrame()!;
+    expect(f).toContain("██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗");
+    expect(f).toContain("╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝");
+    expect(f).toContain("✦ harness v0.1.0");
+    expect(f).toContain("market-terminal");
+    expect(f).toContain("your 5 agents");
+    expect(f).toMatch(/backend-1\s+claude\s+opus\s+idle/);
+    expect(f).toMatch(/frontend-1\s+codex\s+default\s+idle/);
+    expect(f).toMatch(/fullstack-1\s+cursor\s+default\s+idle/);
+    expect(f).toContain("/agents");
+    expect(f).toContain("/usage");
+    expect(f).toContain("❯ team");
+    expect(f).toContain("tell your team what to build");
+    expect(f).not.toContain("╭─────────────────────────────────╮╭"); // no pane grid on home
+    store.stop();
+  });
+
+  it("while agents work, home shows one calm line per working agent; /agents and /usage give the detail", async () => {
+    const { ui, emit, store } = await setup(undefined, 150, 30);
     emit(ev("run.event", "T-005", "backend-1", { event: { type: "message", runId: "R-T-005-1", text: "Writing the quote feed adapter" } }));
     emit(ev("run.event", "T-005", "backend-1", { event: { type: "file_change", runId: "R-T-005-1", path: "src/server/feed.ts" } }));
+    emit(ev("run.event", "T-004", "frontend-1", { event: { type: "tool_call", runId: "R-T-004-1", tool: "Bash", summary: "npm test" } }));
+    await flush(400);
+    const f = ui.lastFrame()!;
+    expect(f).toContain("✦ harness shop".length ? "✦ harness" : "");
+    expect(f).toMatch(/backend-1 T-005 Quote feed · editing src\/server\/feed\.ts · 12m/);
+    expect(f).toMatch(/frontend-1 T-004 Watchlist panel · Bash npm test · 12m/);
+    expect(f).toContain("2 working");
+    expect(f).not.toContain("5h"); // usage is behind /usage
+    store.stop();
+  });
+
+  it("Tab to an agent shows its live session and sends messages straight to it", async () => {
+    const { ui, emit, store } = await setup(undefined, 150, 40);
+    emit(ev("run.event", "T-005", "backend-1", { event: { type: "tool_call", runId: "R-T-005-1", tool: "Bash", summary: "npm test" } }));
+    emit(ev("run.event", "T-005", "backend-1", { event: { type: "message", runId: "R-T-005-1", text: "Writing the quote feed adapter" } }));
+    await flush(300);
+    ui.stdin.write("\t");
     await flush(300);
     const f = ui.lastFrame()!;
-    expect(f).toContain("✦ harness");
-    expect(f).toContain("frontend-1");
-    expect(f).toContain("backend-1");
-    expect(f).toContain("fullstack-1");
-    expect(f).toContain("reviewer-1");
-    expect(f).toContain("planner-1");
-    expect(f).toContain("codex/default");
-    expect(f).toContain("claude/opus");
-    expect(f).toContain("cursor/default");
-    expect(f).toContain("T-004 Watchlist panel");
-    expect(f).toContain("T-005 Quote feed");
+    expect(f).toContain("── backend-1 · working · T-005 Quote feed");
     expect(f).toContain("⏺ Bash(npm test)");
     expect(f).toContain("⏺ Writing the quote feed adapter");
-    expect(f).toContain("✎ src/server/feed.ts");
-    expect(f).toContain("5h");
-    expect(f).toContain("62%");
-    expect(f).toContain("usage unknown");
-    expect(f).toContain("❯ team");
-    expect(f).toContain("tell your 5 agents what to build");
-    expect(f).toContain("▶ running");
+    expect(f).toContain("❯ backend-1");
     store.stop();
   });
 
@@ -127,6 +146,7 @@ describe("chat with your team", () => {
     expect(calls.find((c) => c.method === "agent.message")?.params).toMatchObject({ target: "T-005", text: "use a constant for the port" });
     expect(calls.some((c) => c.method === "dispatch")).toBe(false);
     expect(ui.lastFrame()).toContain("❯ use a constant for the port");
+    expect(ui.lastFrame()).toContain("delivered; it pauses safely and carries on");
     for (let i = 0; i < 5; i++) {
       ui.stdin.write("\t");
       await flush();
@@ -177,10 +197,16 @@ describe("chat with your team", () => {
     expect(f).toContain("brief");
     expect(f).toContain("Show a watchlist with FRESH / STALE states");
     expect(f).toContain("checks");
-    expect(f).not.toContain("fullstack-1");
+    expect(f).not.toContain("reviews tasks when their checks pass"); // only the one session
     ui.stdin.write("\u001B");
     await flush();
-    expect(ui.lastFrame()).toContain("fullstack-1");
+    await send(ui, "/panes");
+    f = ui.lastFrame()!;
+    expect(f).toContain("fullstack-1");
+    expect(f).toContain("planner-1");
+    expect(f).toContain("reviews tasks when their checks pass");
+    ui.stdin.write("\u001B");
+    await flush();
     await send(ui, "/theme sunset");
     expect(onTheme).toHaveBeenCalledWith("sunset");
     await send(ui, "/nope");
@@ -234,19 +260,12 @@ describe("chat with your team", () => {
     d.store.stop();
   });
 
-  it("a fresh project shows the banner and an invitation", async () => {
-    const { ui, store } = await setup(() => ({ ...BASE(), tasks: [], workers: BASE().workers.map((w) => ({ ...w, state: "IDLE" as const, taskId: null, currentRun: null, elapsedMs: null })) }));
+  it("narrow terminals fall back to the small banner and still list agents", async () => {
+    const { ui, store } = await setup(() => ({ ...BASE(), tasks: [], workers: BASE().workers.map((w) => ({ ...w, state: "IDLE" as const, taskId: null, currentRun: null, elapsedMs: null })) }), 50, 40);
     const f = ui.lastFrame()!;
     expect(f).toContain("┣━┫┣━┫┣┳┛");
-    expect(f).toContain("Describe what you want");
-    store.stop();
-  });
-
-  it("narrow terminals stack panes in one column", async () => {
-    const { ui, store } = await setup(undefined, 60);
-    const f = ui.lastFrame()!;
-    expect(f).toContain("frontend-1");
     expect(f).toContain("backend-1");
+    expect(f).toContain("frontend-1");
     store.stop();
   });
 });

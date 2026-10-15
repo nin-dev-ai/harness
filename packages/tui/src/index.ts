@@ -17,6 +17,7 @@ export interface RunTuiOptions {
   welcome?: string;
   /** Where to remember the chosen theme. */
   prefsFile?: string;
+  version?: string;
 }
 
 function readPrefs(file?: string): { theme?: string } {
@@ -39,6 +40,7 @@ export async function runTui(api: TuiApi, o: RunTuiOptions = {}): Promise<UiExit
       onExit: (r: UiExit) => (result = r),
       ...(prefs.theme ? { theme: prefs.theme } : {}),
       ...(o.welcome ? { welcome: o.welcome } : {}),
+      ...(o.version ? { version: o.version } : {}),
       onTheme: (name: string) => {
         if (!o.prefsFile) return;
         try {

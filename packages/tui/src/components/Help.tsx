@@ -11,7 +11,7 @@ export function Help({ t }: { t: Theme }) {
         <Text color={t.you}>type a message</Text> and the planner splits it into mini prompts, one per agent, then starts them.
       </Text>
       <Text>
-        <Text color={t.you}>Tab</Text> picks one agent: your next messages go straight to it. Tab back to <Text bold>team</Text> to talk to everyone.
+        <Text color={t.you}>Tab</Text> picks one agent: its live session shows here and your messages go straight to it. Tab back to <Text bold>team</Text>.
       </Text>
       <Text>
         <Text color={t.you}>/</Text> opens commands. <Text color={C.dim}>Ctrl-C closes harness; agents keep working. /stop stops them.</Text>

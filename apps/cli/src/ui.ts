@@ -9,6 +9,7 @@ import type { Ctx } from "./ctx.js";
 import { openProject, type ProjectSession } from "./commands/_client.js";
 import { detectVendors, initProject } from "./commands/init.js";
 import { CliExit, EXIT } from "./io.js";
+import { VERSION } from "./version.js";
 
 /** Takeover: pause at a safe point, run the vendor's interactive CLI in the worktree, then ask what next. */
 export async function attachFlow(ctx: Ctx, sess: ProjectSession, target: string): Promise<void> {
@@ -82,7 +83,7 @@ export async function openUi(ctx: Ctx): Promise<void> {
     };
     let exit;
     try {
-      exit = await runTui(api, { prefsFile: path.join(harnessHome(ctx.io.env), "ui.json"), ...(welcome ? { welcome } : {}) });
+      exit = await runTui(api, { prefsFile: path.join(harnessHome(ctx.io.env), "ui.json"), version: VERSION, ...(welcome ? { welcome } : {}) });
       welcome = undefined;
     } finally {
       if (exit?.action !== "attach") sess.close();

@@ -25,7 +25,8 @@ import * as stop from "./commands/stop.js";
 import * as task from "./commands/task.js";
 import * as usage from "./commands/usage.js";
 
-export const VERSION = "0.1.0";
+import { VERSION } from "./version.js";
+export { VERSION };
 
 /** Build the command tree. `harness` with no command opens the terminal UI. */
 export function buildProgram(io: Io): Command {
