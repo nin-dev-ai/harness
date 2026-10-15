@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { C } from "./theme.js";
+import { GradientText } from "./components/Logo.js";
+import { C, THEMES } from "./theme.js";
 
 export interface WizardTool {
   vendor: "claude" | "codex" | "cursor";
@@ -38,6 +39,7 @@ interface Preset {
 const PRESETS: Preset[] = [
   { role: "backend", mode: "write", on: true, about: "servers, APIs, data" },
   { role: "frontend", mode: "write", on: true, about: "UI and client code" },
+  { role: "fullstack", mode: "write", on: false, about: "works across UI and server" },
   { role: "tests", mode: "write", on: false, about: "writes and fixes tests" },
   { role: "docs", mode: "write", on: false, about: "docs and READMEs" },
   { role: "reviewer", mode: "readonly", on: true, about: "reviews every change, never edits" },
@@ -193,7 +195,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
 
   const title = (n: number, text: string) => (
     <Text>
-      <Text bold>harness setup</Text>
+      <GradientText text="✦ harness setup" t={THEMES.neon!} bold />
       <Text color={C.dim}> · {project} · step {n} of 3 · </Text>
       {text}
     </Text>
@@ -279,7 +281,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text>
-        <Text bold>harness setup</Text>
+        <GradientText text="✦ harness setup" t={THEMES.neon!} bold />
         <Text color={C.dim}> · {project} · ready</Text>
       </Text>
       <Text> </Text>

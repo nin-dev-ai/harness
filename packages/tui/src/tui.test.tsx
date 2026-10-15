@@ -4,6 +4,7 @@ import type { HarnessEvent } from "@harness/core";
 import type { StatusSnapshot } from "@harness/daemon";
 import { App } from "./App.js";
 import { completions, parseInput } from "./commands.js";
+import { gradient } from "./theme.js";
 import { TuiStore, type TuiApi } from "./store.js";
 import { suggestScope, Wizard, type WizardResult } from "./Wizard.js";
 
@@ -15,32 +16,34 @@ const worker = (id: string, role: string, vendor: string, route: string, state: 
   id, projectId: "p", role, state, currentRun: taskId ? `R-${taskId}-1` : null, heartbeatAt: null, waitingReason: null, vendor, route, taskId, taskTitle: null, runKind: taskId ? "initial" : null, elapsedMs: taskId ? 12 * 60_000 : null,
 });
 
-const snap = (): StatusSnapshot => ({
+const BASE = (): StatusSnapshot => ({
   project: { id: "p", name: "market-terminal", root: "/repo", integrationBranch: "harness/integration", autonomy: "approved-scope" },
   scheduler: { running: true, until: null, burst: true },
   now: NOW,
-  workers: [worker("backend-1", "backend", "claude", "claude-opus", "IDLE"), worker("frontend-1", "frontend", "codex", "codex", "RUNNING", "T-004"), worker("reviewer-1", "reviewer", "cursor", "cursor", "IDLE"), worker("planner-1", "planner", "claude", "claude-opus", "IDLE")],
-  tasks: [task("T-004", "Watchlist panel", "frontend", "RUNNING", { lastRunId: "R-T-004-1", branch: "harness/frontend/T-004-watchlist" }), task("T-005", "Quote feed", "backend", "QUEUED"), task("T-006", "Old bug", "backend", "NEEDS_HUMAN", { needsHumanReason: "stalled: same failure twice" }), task("T-007", "Docs", "backend", "DRAFT")],
+  workers: [worker("frontend-1", "frontend", "codex", "codex", "RUNNING", "T-004"), worker("backend-1", "backend", "claude", "claude-opus", "RUNNING", "T-005"), worker("fullstack-1", "fullstack", "cursor", "cursor", "IDLE"), worker("reviewer-1", "reviewer", "claude", "claude-opus", "IDLE"), worker("planner-1", "planner", "claude", "claude-opus", "IDLE")],
+  tasks: [task("T-004", "Watchlist panel", "frontend", "RUNNING", { lastRunId: "R-T-004-1" }), task("T-005", "Quote feed", "backend", "RUNNING", { lastRunId: "R-T-005-1" })],
   routes: [
     { route: "claude-opus", vendor: "claude", auth: "subscription", model: "opus", pausedUntil: null, pauseSource: null, windows: [{ route: "claude-opus", vendor: "claude", kind: "5h", usedPct: 62, display: "62%", resetsAt: "2026-01-05T14:05:00.000Z", source: "vendor", observedAt: NOW, stale: false, capPct: 100 }] },
     { route: "codex", vendor: "codex", auth: "subscription", model: null, pausedUntil: null, pauseSource: null, windows: [] },
-    { route: "cursor", vendor: "cursor", auth: "api_key", model: null, pausedUntil: null, pauseSource: null, windows: [] },
+    { route: "cursor", vendor: "cursor", auth: "subscription", model: null, pausedUntil: null, pauseSource: null, windows: [] },
   ],
   approvals: [],
   warnings: [],
 });
 
-function fakeApi() {
+function fakeApi(snapshot: () => StatusSnapshot = BASE) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const listeners = new Set<(e: HarnessEvent) => void>();
   const api: TuiApi = {
     call: async <T,>(method: string, params: Record<string, unknown> = {}) => {
       calls.push({ method, params });
-      if (method === "status") return snap() as T;
+      if (method === "status") return snapshot() as T;
       if (method === "events.list") return [] as T;
-      if (method === "task.show") return { spec: { body: "Show a watchlist with FRESH / STALE / DELAYED states", front: { acceptance: ["lists symbols", "freshness states"] } }, runs: [{ id: "R-T-004-1", kind: "initial", state: "RUNNING", route: "codex", checks: [{ checkId: "unit", ok: false }] }] } as T;
-      if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added\n-removed", checks: [{ checkId: "unit", ok: false, required: true }], gate: "gate.failed", findings: [], fileStats: [{ path: "src/panels/Watchlist.tsx", insertions: 30, deletions: 4 }] } as T;
-      if (method === "task.add") return { id: "T-008" } as T;
+      if (method === "task.show") return { spec: { body: "Show a watchlist with FRESH / STALE states", front: { acceptance: ["lists symbols"] } }, runs: [{ id: "R-T-004-1", kind: "initial", state: "RUNNING", route: "codex", checks: [{ checkId: "unit", ok: false }] }] } as T;
+      if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added line\n-removed line", checks: [{ checkId: "unit", ok: false, required: true }], gate: "gate.failed", findings: [], fileStats: [{ path: "src/ui/Watchlist.tsx", insertions: 30, deletions: 4 }] } as T;
+      if (method === "dispatch") return { summary: "Quote feed first, then the panel.", tasks: [{ id: "T-008", title: "Quote feed", role: "backend", dependsOn: [] }, { id: "T-009", title: "Watchlist", role: "frontend", dependsOn: ["T-008"] }] } as T;
+      if (method === "agent.message") return { taskId: "T-004", delivery: "now" } as T;
+      if (method === "task.add") return { id: "T-010" } as T;
       if (method === "task.approve") return { approved: params.all ? ["T-007"] : ((params.ids as string[]) ?? []) } as T;
       return {} as T;
     },
@@ -54,113 +57,202 @@ function fakeApi() {
 }
 
 const flush = (ms = 40) => new Promise((r) => setTimeout(r, ms));
-async function setup() {
-  const f = fakeApi();
+async function setup(snapshot?: () => StatusSnapshot, columns = 150) {
+  const f = fakeApi(snapshot);
   const store = new TuiStore(f.api);
   await store.start();
   const onExit = vi.fn();
-  const ui = render(<App store={store} onExit={onExit} size={{ columns: 130, rows: 30 }} />);
-  await flush(700);
-  return { ...f, store, ui, onExit };
+  const onTheme = vi.fn();
+  const ui = render(<App store={store} onExit={onExit} onTheme={onTheme} size={{ columns, rows: 36 }} />);
+  await flush(500);
+  return { ...f, store, ui, onExit, onTheme };
 }
+const send = async (ui: ReturnType<typeof render>, text: string) => {
+  ui.stdin.write(text);
+  await flush();
+  ui.stdin.write("\r");
+  await flush(80);
+};
+const ev = (type: string, taskId: string, workerId: string, payload: unknown): HarnessEvent => ({ ts: NOW, projectId: "p", type, taskId, workerId, runId: `R-${taskId}-1`, payload }) as unknown as HarnessEvent;
 
-describe("management panel", () => {
-  it("shows who is working on what, with tool, model, context and the selected agent's details", async () => {
+describe("chat with your team", () => {
+  it("opens one live pane per agent, in each tool's own session, with usage on top", async () => {
     const { ui, emit, store } = await setup();
-    emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "tool_call", runId: "R-T-004-1", tool: "shell", summary: "npm test" } } } as HarnessEvent);
-    emit({ ts: NOW, projectId: "p", type: "run.event", runId: "R-T-004-1", taskId: "T-004", workerId: "frontend-1", payload: { event: { type: "usage", runId: "R-T-004-1", tokensIn: 48_200, tokensOut: 900, costUsd: 0.42 } } } as HarnessEvent);
-    await flush(700);
+    emit(ev("run.event", "T-004", "frontend-1", { event: { type: "tool_call", runId: "R-T-004-1", tool: "Bash", summary: "npm test" } }));
+    emit(ev("run.event", "T-005", "backend-1", { event: { type: "message", runId: "R-T-005-1", text: "Writing the quote feed adapter" } }));
+    emit(ev("run.event", "T-005", "backend-1", { event: { type: "file_change", runId: "R-T-005-1", path: "src/server/feed.ts" } }));
+    await flush(300);
     const f = ui.lastFrame()!;
-    expect(f).toContain("harness · market-terminal");
-    expect(f).toContain("claude 5h 62%");
-    expect(f).toContain("codex usage unknown");
-    expect(f).toContain("1 working · 3 idle");
-    expect(f).toContain("1 needs you");
-    expect(f).toMatch(/AGENT\s+TOOL\s+STATUS\s+TASK\s+TIME\s+CONTEXT\s+COST/);
-    expect(f).toMatch(/▸.frontend-1\s+codex\/default\s+working\s+T-004 Watchlist panel\s+12m\s+48k\s+\$0\.42/);
-    expect(f).toMatch(/backend-1\s+claude\/opus\s+idle\s+next: T-005 Quote feed/);
-    expect(f).toContain("── frontend-1 · T-004 Watchlist panel");
-    expect(f).toContain("Show a watchlist with FRESH / STALE / DELAYED states");
-    expect(f).toContain("· lists symbols");
-    expect(f).toContain("src/panels/Watchlist.tsx +30 -4");
-    expect(f).toContain("last gate: ✗ unit   attempt 1/3");
-    expect(f).toContain("now");
-    expect(f).toContain("shell npm test");
-    expect(f).toContain("T-006 needs you");
-    expect(f).toContain("1 draft (/approve all)");
-    expect(f).not.toContain("⏺"); // no chat stream here
+    expect(f).toContain("✦ harness");
+    expect(f).toContain("frontend-1");
+    expect(f).toContain("backend-1");
+    expect(f).toContain("fullstack-1");
+    expect(f).toContain("reviewer-1");
+    expect(f).toContain("planner-1");
+    expect(f).toContain("codex/default");
+    expect(f).toContain("claude/opus");
+    expect(f).toContain("cursor/default");
+    expect(f).toContain("T-004 Watchlist panel");
+    expect(f).toContain("T-005 Quote feed");
+    expect(f).toContain("⏺ Bash(npm test)");
+    expect(f).toContain("⏺ Writing the quote feed adapter");
+    expect(f).toContain("✎ src/server/feed.ts");
+    expect(f).toContain("5h");
+    expect(f).toContain("62%");
+    expect(f).toContain("usage unknown");
+    expect(f).toContain("❯ team");
+    expect(f).toContain("tell your 5 agents what to build");
+    expect(f).toContain("▶ running");
     store.stop();
   });
 
-  it("arrow keys select agents; enter opens the review; d the diff; esc closes", async () => {
-    const { ui, store } = await setup();
-    ui.stdin.write("\u001B[B");
-    await flush(300);
-    expect(ui.lastFrame()).toContain("── backend-1 · T-005 Quote feed");
-    expect(ui.lastFrame()).toContain("(up next)");
-    ui.stdin.write("\u001B[A");
+  it("a plain message goes to the planner, which splits it across agents and starts them", async () => {
+    const { ui, calls, store } = await setup();
+    await send(ui, "build a watchlist with live quotes");
+    expect(calls.find((c) => c.method === "dispatch")?.params).toMatchObject({ document: "build a watchlist with live quotes", source: "chat" });
+    const f = ui.lastFrame()!;
+    expect(f).toContain("❯ build a watchlist with live quotes");
+    expect(f).toContain("→ backend: Quote feed");
+    expect(f).toContain("→ frontend: Watchlist (after T-008)");
+    expect(f).toContain("2 tasks started");
+    store.stop();
+  });
+
+  it("Tab selects an agent; messages then go straight to it, and Tab back returns to the team", async () => {
+    const { ui, calls, store } = await setup();
+    ui.stdin.write("\t");
+    await flush();
+    expect(ui.lastFrame()).toContain("❯ backend-1");
+    await send(ui, "use a constant for the port");
+    expect(calls.find((c) => c.method === "agent.message")?.params).toMatchObject({ target: "T-005", text: "use a constant for the port" });
+    expect(calls.some((c) => c.method === "dispatch")).toBe(false);
+    expect(ui.lastFrame()).toContain("❯ use a constant for the port");
+    for (let i = 0; i < 5; i++) {
+      ui.stdin.write("\t");
+      await flush();
+    }
+    expect(ui.lastFrame()).toContain("❯ team");
+    store.stop();
+  });
+
+  it("an idle agent turns a direct message into a new started task", async () => {
+    const { ui, calls, store } = await setup();
+    await send(ui, "/switch fullstack");
+    expect(ui.lastFrame()).toContain("❯ fullstack-1");
+    await send(ui, "add a login page");
+    expect(calls.find((c) => c.method === "task.add")?.params).toMatchObject({ title: "add a login page", role: "fullstack", approve: true });
+    expect(calls.some((c) => c.method === "run")).toBe(true);
+    expect(ui.lastFrame()).toContain("T-010 started");
+    store.stop();
+  });
+
+  it("slash commands: menu, /agents, /usage, /zoom, /theme", async () => {
+    const { ui, calls, store, onTheme } = await setup();
+    ui.stdin.write("/");
+    await flush();
+    expect(ui.lastFrame()).toContain("/agents");
+    expect(ui.lastFrame()).toContain("/switch");
+    ui.stdin.write("age");
     await flush();
     ui.stdin.write("\r");
+    await flush(80);
+    let f = ui.lastFrame()!;
+    expect(f).toContain("who is doing what");
+    expect(f).toMatch(/AGENT\s+TOOL\s+STATUS\s+TASK/);
+    expect(f).toMatch(/frontend-1\s+codex\/default\s+working\s+T-004 Watchlist panel/);
+    ui.stdin.write("\u001B");
     await flush();
-    expect(ui.lastFrame()).toContain("review T-004 Watchlist panel");
+    await send(ui, "/usage");
+    f = ui.lastFrame()!;
+    expect(f).toContain("unknown is never shown as 0%");
+    expect(f).toContain("claude-opus");
+    ui.stdin.write("\u001B");
+    await flush();
+    await send(ui, "/zoom");
+    expect(ui.lastFrame()).toContain("Tab to an agent first");
+    ui.stdin.write("\t");
+    await flush();
+    await send(ui, "/zoom");
+    f = ui.lastFrame()!;
+    expect(f).toContain("brief");
+    expect(f).toContain("Show a watchlist with FRESH / STALE states");
+    expect(f).toContain("checks");
+    expect(f).not.toContain("fullstack-1");
+    ui.stdin.write("\u001B");
+    await flush();
+    expect(ui.lastFrame()).toContain("fullstack-1");
+    await send(ui, "/theme sunset");
+    expect(onTheme).toHaveBeenCalledWith("sunset");
+    await send(ui, "/nope");
+    expect(ui.lastFrame()).toContain("unknown command /nope");
+    expect(calls.some((c) => c.method === "dispatch")).toBe(false);
+    store.stop();
+  });
+
+  it("/review and /diff show the selected agent's evidence; /accept, /pause, /task call the daemon", async () => {
+    const { ui, calls, store } = await setup();
+    ui.stdin.write("\t");
+    await flush();
+    await send(ui, "/review");
+    expect(ui.lastFrame()).toContain("review T-004");  // the fake returns T-004's evidence
     expect(ui.lastFrame()).toContain("✗ unit");
     ui.stdin.write("\u001B");
     await flush();
-    ui.stdin.write("d");
+    await send(ui, "/diff");
+    expect(ui.lastFrame()).toContain("+added line");
+    ui.stdin.write("\u001B");
     await flush();
-    expect(ui.lastFrame()).toContain("diff T-004");
-    expect(ui.lastFrame()).toContain("+added");
-    store.stop();
-  });
-
-  it("/ opens a command line with completion; commands call the daemon", async () => {
-    const { ui, calls, store } = await setup();
-    ui.stdin.write("/");
-    await flush();
-    ui.stdin.write("ap");
-    await flush();
-    expect(ui.lastFrame()).toContain("/approve");
-    ui.stdin.write("\t");
-    await flush();
-    ui.stdin.write("all\r");
-    await flush();
+    await send(ui, "/pause");
+    expect(calls.find((c) => c.method === "pause")?.params).toEqual({ task: "T-005" });
+    await send(ui, "/task Add health check @backend");
+    expect(calls.find((c) => c.method === "task.add")?.params).toMatchObject({ title: "Add health check", role: "backend", approve: true });
+    await send(ui, "/approve all");
     expect(calls.find((c) => c.method === "task.approve")?.params).toEqual({ all: true });
-    expect(ui.lastFrame()).toContain("approved T-007");
-    ui.stdin.write("/");
-    await flush();
-    ui.stdin.write("task Add health check @backend\r");
-    await flush();
-    expect(calls.find((c) => c.method === "task.add")?.params).toEqual({ title: "Add health check", role: "backend", approve: true });
-    ui.stdin.write("/");
-    await flush();
-    ui.stdin.write("msg use a constant\r");
-    await flush();
-    expect(calls.find((c) => c.method === "agent.message")?.params).toEqual({ target: "T-004", text: "use a constant" });
-    ui.stdin.write("p");
-    await flush();
-    expect(calls.find((c) => c.method === "pause")?.params).toEqual({ task: "T-004" });
     store.stop();
   });
 
-  it("q closes the panel without stopping agents; /stop stops", async () => {
+  it("Ctrl-C closes without stopping agents; /stop stops; /setup asks for the wizard; /attach hands over the task", async () => {
     const a = await setup();
-    a.ui.stdin.write("q");
+    a.ui.stdin.write("\u0003");
     await flush();
     expect(a.onExit).toHaveBeenCalledWith({ action: "quit" });
-    expect(a.calls.some((c) => c.method === "daemon.stop" || c.method === "stop")).toBe(false);
+    expect(a.calls.some((c) => c.method === "daemon.stop")).toBe(false);
     a.store.stop();
     const b = await setup();
-    b.ui.stdin.write("/");
-    await flush();
-    b.ui.stdin.write("stop\r");
-    await flush();
+    await send(b.ui, "/stop");
     expect(b.onExit).toHaveBeenCalledWith({ action: "stop" });
     b.store.stop();
+    const c = await setup();
+    await send(c.ui, "/setup");
+    expect(c.onExit).toHaveBeenCalledWith({ action: "setup" });
+    c.store.stop();
+    const d = await setup();
+    d.ui.stdin.write("\t");
+    await flush();
+    await send(d.ui, "/attach");
+    expect(d.onExit).toHaveBeenCalledWith({ action: "attach", target: "T-005" });
+    d.store.stop();
+  });
+
+  it("a fresh project shows the banner and an invitation", async () => {
+    const { ui, store } = await setup(() => ({ ...BASE(), tasks: [], workers: BASE().workers.map((w) => ({ ...w, state: "IDLE" as const, taskId: null, currentRun: null, elapsedMs: null })) }));
+    const f = ui.lastFrame()!;
+    expect(f).toContain("┣━┫┣━┫┣┳┛");
+    expect(f).toContain("Describe what you want");
+    store.stop();
+  });
+
+  it("narrow terminals stack panes in one column", async () => {
+    const { ui, store } = await setup(undefined, 60);
+    const f = ui.lastFrame()!;
+    expect(f).toContain("frontend-1");
+    expect(f).toContain("backend-1");
+    store.stop();
   });
 });
 
 describe("setup wizard", () => {
-  it("walks tools, agents and per-agent settings, then returns the choices", async () => {
+  it("offers frontend, backend, full stack and more; walks tools and per-agent choices", async () => {
     let result: WizardResult[] | null = null;
     const ui = render(
       <Wizard
@@ -176,65 +268,58 @@ describe("setup wizard", () => {
     expect(ui.lastFrame()).toContain("not installed  → install it");
     ui.stdin.write("\r");
     await flush();
-    expect(ui.lastFrame()).toContain("which agents do you want?");
-    expect(ui.lastFrame()).toContain("[x] backend");
-    // turn on "tests", add a custom "infra" agent
+    const roles = ui.lastFrame()!;
+    expect(roles).toContain("[x] backend");
+    expect(roles).toContain("[x] frontend");
+    expect(roles).toContain("[ ] fullstack");
+    // backend, frontend, fullstack: turn fullstack on
     ui.stdin.write("\u001B[B");
     await flush();
     ui.stdin.write("\u001B[B");
     await flush();
     ui.stdin.write(" ");
     await flush();
-    for (let i = 0; i < 4; i++) {
-      ui.stdin.write("\u001B[B");
-      await flush();
-    }
-    ui.stdin.write("infra");
-    await flush();
+    expect(ui.lastFrame()).toContain("[x] fullstack");
     ui.stdin.write("\r");
     await flush();
-    expect(ui.lastFrame()).toContain("[x] infra");
-    ui.stdin.write("\r");
-    await flush();
-    expect(ui.lastFrame()).toContain("agent 1 of 6: backend");
-    expect(ui.lastFrame()).toContain("◂ claude ▸");
+    expect(ui.lastFrame()).toContain("agent 1 of 5: backend");
     expect(ui.lastFrame()).toContain("src/server/**");
-    ui.stdin.write("\u001B[B"); // model
-    await flush();
-    ui.stdin.write("opus");
-    await flush();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 5; i++) {
       ui.stdin.write("\r");
       await flush();
     }
     expect(ui.lastFrame()).toContain("ready");
-    expect(ui.lastFrame()).toContain("claude/opus");
     ui.stdin.write("\r");
     await flush();
-    expect(result).not.toBeNull();
     const r = result as unknown as WizardResult[];
     expect(r.map((a) => [a.role, a.vendor, a.mode])).toEqual([
       ["backend", "claude", "write"],
       ["frontend", "codex", "write"],
-      ["tests", "claude", "write"],
-      ["infra", "codex", "write"],
+      ["fullstack", "claude", "write"],
       ["reviewer", "codex", "readonly"],
       ["planner", "claude", "readonly"],
     ]);
-    expect(r[0]).toMatchObject({ model: "opus", pathsAllow: ["src/server/**"], concurrency: 1 });
+    expect(r[2]).toMatchObject({ pathsAllow: ["src/**"] });
   });
 
   it("suggests write scopes from the repo's folders", () => {
     expect(suggestScope("frontend", ["src", "web"])).toBe("web/**");
     expect(suggestScope("backend", ["api", "src"])).toBe("api/**");
-    expect(suggestScope("infra", ["src"])).toBe("src/**");
+    expect(suggestScope("fullstack", ["src"])).toBe("src/**");
     expect(suggestScope("docs", [])).toBe("docs/**, **/*.md");
   });
+});
 
-  it("parses commands", () => {
-    expect(parseInput("/approve all")).toEqual({ kind: "command", name: "approve", args: "all", known: true });
-    expect(parseInput("rev T-4")).toMatchObject({ name: "review", known: true });
-    expect(completions("").length).toBeGreaterThan(10);
-    expect(completions("ta").map((c) => c.name)).toEqual(["task", "tasks"]);
+describe("pieces", () => {
+  it("parses input and completes commands", () => {
+    expect(parseInput("hello")).toEqual({ kind: "message", text: "hello" });
+    expect(parseInput("/rev T-4")).toEqual({ kind: "command", name: "review", args: "T-4", known: true });
+    expect(parseInput("/re")).toMatchObject({ known: false });
+    expect(completions("/").length).toBeGreaterThan(15);
+    expect(completions("/th").map((c) => c.name)).toEqual(["theme"]);
+    expect(completions("hello")).toEqual([]);
+  });
+  it("makes gradients", () => {
+    expect(gradient("abc", ["#000000", "#ffffff"]).map((x) => x.color)).toEqual(["#000000", "#808080", "#ffffff"]);
   });
 });

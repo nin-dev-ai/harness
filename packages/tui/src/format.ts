@@ -80,6 +80,7 @@ export function toEntry(e: HarnessEvent): Entry | undefined {
     case "policy.denied":
       return { kind: "warn", text: `policy: ${e.payload.detail}`, ts };
     case "task.state_changed":
+      if (e.payload.to === "QUEUED" && (e.payload.reason ?? "").startsWith("approved")) return undefined;
       return ["PAUSED", "QUEUED", "TAKEN_OVER", "STALE", "CANCELLED"].includes(e.payload.to) ? { kind: "sys", text: `${e.payload.to.toLowerCase()}${e.payload.reason ? ` · ${e.payload.reason}` : ""}`, ts } : undefined;
     default:
       return undefined;

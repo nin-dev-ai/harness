@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CONFIG_FILE, configFromWizard, writeFileAtomic } from "@harness/config";
 import { slugify } from "@harness/core";
+import { harnessHome } from "@harness/daemon";
 import { git, isGitRepo, repoRoot } from "@harness/workspace";
 import type { Ctx } from "./ctx.js";
 import { openProject, type ProjectSession } from "./commands/_client.js";
@@ -67,7 +68,7 @@ export async function openUi(ctx: Ctx): Promise<void> {
       ctx.io.out("setup cancelled; nothing was written.");
       return;
     }
-    welcome = "saved harness.yaml and .harness/checks.yaml. Add work with /task <title> @role or /plan <file>, then r to run.";
+    welcome = "saved harness.yaml. Describe what you want built and your agents will split it up.";
   }
   const { runTui } = await import("@harness/tui");
   for (;;) {
@@ -81,7 +82,7 @@ export async function openUi(ctx: Ctx): Promise<void> {
     };
     let exit;
     try {
-      exit = await runTui(api, welcome ? { welcome } : {});
+      exit = await runTui(api, { prefsFile: path.join(harnessHome(ctx.io.env), "ui.json"), ...(welcome ? { welcome } : {}) });
       welcome = undefined;
     } finally {
       if (exit?.action !== "attach") sess.close();
@@ -89,6 +90,14 @@ export async function openUi(ctx: Ctx): Promise<void> {
     if (exit.action === "quit") {
       ctx.io.out("panel closed. Agents keep working; type `harness` to come back.");
       return;
+    }
+    if (exit.action === "setup") {
+      sess.close();
+      if (await setupWizard(ctx, root)) {
+        await (await import("./commands/routes.js")).notifyReload(ctx);
+        welcome = "saved harness.yaml with your new agents.";
+      }
+      continue;
     }
     if (exit.action === "stop") {
       await sess.client.call("daemon.stop").catch(() => undefined);

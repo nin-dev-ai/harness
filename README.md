@@ -12,26 +12,26 @@ You declare roles (`frontend: codex`, `backend: claude`, `reviewer: cursor`), an
 It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset.
 
 ```
-harness · market-terminal                         claude 5h 62% · 7d 33%   codex 5h 31%   cursor 3 of 40 runs/day
-2 working · 2 idle · 1 queued · 1 needs you · scheduler running
-
-  AGENT         TOOL               STATUS      TASK                                  TIME   CONTEXT  COST
-▸⠋frontend-1    codex/default      working     T-004 Watchlist panel                 12m    48k      —
- ⠋backend-1     claude/opus        fixing      T-005 Quote feed adapter              7m     21k      $0.18
-  reviewer-1    cursor/default     idle        next: T-003 Quote contract
-  planner-1     claude/opus        idle
-
-── frontend-1 · T-004 Watchlist panel ─────────────────────────────────────────────────────────────────
- state     running
- brief     Show a watchlist with FRESH / STALE / DELAYED states
- accept    · lists symbols   · freshness states   · unit tests
- files     src/panels/Watchlist.tsx +30 -4 · src/panels/Watchlist.test.tsx +12 -4
- checks    last gate: ✗ unit   attempt 2/3
- now       shell npm test watchlist
- branch    harness/frontend/T-004-watchlist
-
- T-006 needs you  ·  1 draft (/approve all)
- ↑↓ select · enter review · d diff · r run · p pause · / command · ? help · q quit
+✦ harness · shop                                                                                  09:47
+✻ claude 5h ███░░ 62% · 7d 33%   ◆ codex 5h ██░░░ 31%   ▲ cursor usage unknown
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭───────────────────────────────╮╭───────────────────────────────╮
+┃ ⠴ backend-1            working ┃│ · frontend-1             idle ││ ⠴ fullstack-1         working │
+┃ ✻ claude/opus                  ┃│ ◆ codex/default               ││ ▲ cursor/default              │
+┃ T-001 Quote feed adapter       ┃│ T-003 Watchlist panel · queued││ T-002 Login page and session  │
+┃ 7m · 2 files +42 -8 · 21k ctx  ┃│                               ││ 3m · 1 file +30 -0            │
+┃ ⏺ Writing the quote feed…      ┃│                               ││ ⏺ Building the login form…    │
+┃ ⏺ Bash(npm test)               ┃│                               ││   ⎿ ✎ src/login.js            │
+┃   ⎿ ✎ src/server/feed.js       ┃│                               ││                               │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰───────────────────────────────╯╰───────────────────────────────╯
+ ❯ build a watchlist with live quotes and a login page
+ ⏺ Quote feed and login first; the panel builds on the feed.
+ · → backend: Quote feed adapter
+ · → fullstack: Login page and session
+ · → frontend: Watchlist panel (after T-001)
+╭───────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ❯ team  tell your 5 agents what to build…   Tab picks one · / commands                            │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ✦ shop  ⎇ harness/integration  ▶ running  2 working · 1 queued                Tab agents · / commands · ^C quit
 ```
 
 ## Quick start
@@ -56,12 +56,14 @@ cd ~/code/my-repo
 harness
 ```
 
-The first time, a short setup wizard asks which agents you want (backend, frontend, tests, docs, reviewer, planner, or your own), which tool and model each one uses, and which folders each may write. It saves `harness.yaml`, which you can edit by hand any time (`harness setup` reruns the wizard).
+**First time:** a short wizard lets you pick your agents (frontend, backend, full stack, tests, docs, reviewer, planner, or your own), which tool and model each one uses, and which folders it may write. It saves `harness.yaml` (edit it by hand any time; `/setup` reruns the wizard).
 
-After that, `harness` opens the **management panel**: one row per agent showing its tool, status, task, time, context and cost. Below the table are the selected agent's brief, acceptance criteria, changed files, last checks and current action.
+**Then you chat.** One pane per agent shows its live session, side by side:
 
-- **↑↓** select an agent · **enter** review its task · **d** diff · **r** run · **p** pause · **q** close (agents keep working)
-- **`/`** opens a command line: `/task Add login @backend`, `/plan spec.md`, `/approve all`, `/msg <note to the selected agent>`, `/accept`, `/usage`, `/tasks`, `/help`
+- **Type a message** and the planner splits it into mini prompts, one per agent, and starts them. You see the split in the feed.
+- **Tab** picks one agent; your messages then go straight to it (a busy agent pauses at a safe point and reads it; an idle one starts a new task). Tab back to `team`.
+- **`/`** opens commands: `/agents` (who is doing what, with tool, time, context, cost), `/usage` (limits per tool), `/switch`, `/zoom`, `/review`, `/diff`, `/accept`, `/attach` (the agent's real interactive CLI), `/theme`, `/help`.
+- **Ctrl-C** closes harness; the agents keep working. `/stop` stops them.
 
 Everything is also a plain command, for scripts:
 

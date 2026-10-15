@@ -101,3 +101,8 @@ The chat-first UI felt like a second Claude Code and its colors were distracting
 - a `/` command line.
 
 There is no output stream on the main screen. The palette is neutral, with one accent for the selection and yellow/red only for waiting or problems. Setup is a first-run wizard (tools, agents, per-agent tool/model/write scope/count) that writes harness.yaml. `harness setup` reruns it. Messages to agents remain available as `/msg`.
+
+## 2026-10-15 · Chat-with-your-team screen (user's concept)
+Final shape of the UI, replacing the management panel: pick agents in a first-run wizard, then chat. A message with the team focused runs the `dispatch` RPC: the planner splits it into one mini prompt (task) per agent, tasks are approved and the scheduler starts. Tab focuses one agent so messages go straight to it. One live pane per agent in a balanced grid, in the tool's own color; `/agents`, `/usage`, `/zoom`, `/review`, `/diff`, `/attach` are slash commands. Color is for chrome (gradient logo, pane borders, status blocks); message text stays the default color.
+
+"Terminal sessions" are live panes fed by each agent's structured headless run, so harness always knows when an agent finishes, fails or hits a limit (needed for checks, repair, review and merge). `/attach` opens the real interactive CLI on the same session. A tmux mirror exists behind `ui.tmux`. Typing keystrokes into real interactive CLIs was not chosen: harness could no longer reliably detect done/failed/usage.

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { HarnessError, type TaskSize } from "@harness/core";
+import { HarnessError, type Task, type TaskSize } from "@harness/core";
 import { editHarnessConfig, findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
 import { changedFiles, diffSummary, diffText } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
@@ -282,6 +282,31 @@ export class EnginePlugin implements DaemonPlugin {
         const { p } = ctxProject(params, ctx.attended);
         const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("(inline)") }), params);
         return new Planner(p, d.supervisor).plan(a.document, a.source);
+      },
+      /**
+       * Chat to the team: the planner splits a message into one mini prompt
+       * per agent, the new tasks are approved, and the scheduler starts them.
+       */
+      dispatch: async (params, ctx) => {
+        const { p, e } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ document: z.string().min(1), source: z.string().default("chat") }), params);
+        const writers = Object.entries(p.config.roles).filter(([, r]) => r.mode === "write").map(([n]) => n);
+        let created: Task[];
+        let summary = "";
+        if (p.config.roles.planner) {
+          const r = await new Planner(p, d.supervisor).plan(a.document, a.source);
+          created = r.tasks;
+          summary = r.summary;
+        } else if (writers.length === 1) {
+          // No planner agent, one writer: the whole message is its task.
+          created = [p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: writers[0]!, body: a.document })];
+        } else {
+          throw new HarnessError("CONFIG", "there is no planner agent to split work across agents: add one with `harness setup`");
+        }
+        this.approve(p, created.map((t) => t.id));
+        if (e.running) e.kick();
+        else e.start({});
+        return { summary, tasks: created.map((t) => ({ id: t.id, title: t.title, role: t.role, dependsOn: t.dependsOn })) };
       },
       "roles.propose": async (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);

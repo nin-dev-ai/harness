@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { HarnessError } from "@harness/core";
 import { Planner } from "@harness/daemon";
-import { createScenario, DEFAULT_CONFIG, startHarness, type Harness, type Scenario } from "../helpers/scenario.js";
+import { byMode, createScenario, DEFAULT_CONFIG, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
 
 /** Planner scenarios (M12): schema-validated drafts, one retry, typed failure. */
 const CONFIG = DEFAULT_CONFIG.replace("roles:\n", "roles:\n  planner:\n    route: rev\n    mode: readonly\n");
@@ -88,5 +88,30 @@ describe("planner", () => {
     expect(h.project.config.roles.api).toMatchObject({ route: "slow", paths_allow: ["src/api/**"] });
     expect(h.project.config.roles.reviewer?.independent_of).toEqual(["api"]);
     expect(h.project.store.workers.get(h.project.id, "api-1")).toBeDefined();
+  });
+});
+
+describe("dispatch (chat to the team)", () => {
+  let s2: Scenario;
+  let h2: Harness;
+  afterEach(async () => {
+    await h2?.stop();
+    s2.cleanup();
+  });
+
+  it("splits one message across agents, approves, and starts them", async () => {
+    s2 = createScenario({ config: CONFIG });
+    h2 = await startHarness(s2);
+    s2.scripts.set("PLAN", plan([
+      t("api", { title: "Quote feed", role: "backend" }),
+      t("ui", { title: "Watchlist", role: "frontend", depends_on: ["api"] }),
+    ]));
+    s2.scripts.set("T-001", byMode(writes({ "src/server/feed.ts": "x\n" })));
+    s2.scripts.set("T-002", byMode(writes({ "src/ui/panel.ts": "y\n" })));
+    const call = h2.daemon.handlers().dispatch!;
+    const r = (await call({ projectId: h2.project.id, document: "Live quotes with a watchlist", attended: true }, { attended: true, subscribe: () => () => undefined })) as { tasks: { id: string; role: string }[] };
+    expect(r.tasks.map((x) => [x.id, x.role])).toEqual([["T-001", "backend"], ["T-002", "frontend"]]);
+    await h2.until("T-002", "MERGED");
+    expect(s2.repo.git("log", "--format=%s", "main..harness/integration").split("\n")).toEqual(["T-002: Watchlist", "T-001: Quote feed"]);
   });
 });
