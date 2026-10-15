@@ -29,6 +29,14 @@ It knows each plan's usage windows, so it spends headroom before a reset, pauses
  ✦ market-terminal  ⎇ harness/integration  ▶ running  ⚡ burst  ✅ 3  ⚙ 2  ⏳ 1     /help · Tab agents · Ctrl-C quit
 ```
 
+## Banner size and terminal text
+
+On the welcome screen, harness picks the largest banner that fits the terminal's width and height: XL (12 rows), big (6 rows), or small (3 rows). If there is not enough room, it hides the banner. This is why the logo can look different when you resize the window.
+
+Set `HARNESS_BANNER=xl|big|small|off` to choose a preferred size or hide it. For example, run `HARNESS_BANNER=big harness` to request the big banner. If the requested size does not fit, harness uses a smaller one or hides it; enlarge the terminal window to show XL.
+
+For **larger text throughout the UI**, change your terminal's font size. In iTerm2 or Terminal.app on macOS, try `Cmd-+`; in other terminals, use their font size setting. harness cannot change the terminal's actual font size.
+
 ## Quick start
 
 You need Node.js 20.19 or newer, git, and at least one of `claude`, `codex` or `cursor-agent` installed and signed in.
