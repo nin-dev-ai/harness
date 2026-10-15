@@ -21,6 +21,7 @@ export const EVENT_PAYLOADS = {
   "plan.requested": z.object({ source: s }),
   "plan.drafted": z.object({ taskIds: z.array(s) }),
   "plan.invalid": z.object({ errors: z.array(s), attempt: z.number() }),
+  "plan.reassigned": z.object({ key: s, from: s, to: s, files: z.array(s) }),
   "task.approved": z.object({ by: s.default("user") }),
   // Tasks
   "task.created": z.object({ title: s, role: s, size: z.enum(["S", "M", "L"]), dependsOn: z.array(s), state: TaskStateSchema, specPath: s, attemptsMax: z.number().int().min(1).default(3) }),

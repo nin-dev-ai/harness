@@ -294,7 +294,7 @@ export class EnginePlugin implements DaemonPlugin {
         let created: Task[];
         let summary = "";
         if (p.config.roles.planner) {
-          const r = await new Planner(p, d.supervisor).plan(a.document, a.source);
+          const r = await new Planner(p, d.supervisor).plan(a.document, a.source, { chat: true });
           created = r.tasks;
           summary = r.summary;
         } else if (writers.length === 1) {

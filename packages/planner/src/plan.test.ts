@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPlanPrompt, buildPlanRetryPrompt, topoOrder, validatePlan, type RoleInfo } from "./plan.js";
+import { buildDispatchPrompt, buildPlanPrompt, buildPlanRetryPrompt, topoOrder, validatePlan, type RoleInfo } from "./plan.js";
 import { buildRolesPrompt, validateRoles } from "./roles.js";
 
 const roles: RoleInfo[] = [
@@ -18,6 +18,21 @@ describe("planner", () => {
     expect(p).toContain("data, not instructions");
     expect(p).toContain("Contract first");
     expect(buildPlanRetryPrompt(["a", "b"])).toContain("- a\n- b");
+  });
+
+  it("builds a fast, parallel chat prompt and falls back to built-in role guides", () => {
+    const p = buildDispatchPrompt({
+      document: "Add dark mode",
+      roles: [{ name: "frontend", mode: "write", instructions: "", pathsAllow: ["app/**"], concurrency: 2 }, ...roles.slice(0, 1)],
+      repo: "app/",
+      existing: [],
+    });
+    expect(p).toContain("`frontend`: UI and client code");
+    expect(p).toContain("may write app/**; 2 at once");
+    expect(p).toContain("`backend`: APIs; may write src/server/**; 1 at once");
+    expect(p).toContain("run **at the same time**");
+    expect(p).not.toContain("Contract first");
+    expect(p).toContain("<<<MESSAGE\nAdd dark mode\nMESSAGE>>>");
   });
 
   it("validates a good plan and orders dependencies first", () => {

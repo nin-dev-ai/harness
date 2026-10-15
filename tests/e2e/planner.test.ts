@@ -114,4 +114,19 @@ describe("dispatch (chat to the team)", () => {
     await h2.until("T-002", "MERGED");
     expect(s2.repo.git("log", "--format=%s", "main..harness/integration").split("\n")).toEqual(["T-002: Watchlist", "T-001: Quote feed"]);
   });
+
+  it("moves a task to the role whose folders cover its files", async () => {
+    s2 = createScenario({ config: CONFIG });
+    h2 = await startHarness(s2);
+    s2.scripts.set("PLAN", plan([
+      t("ui", { title: "Panel", role: "frontend", files_hint: ["src/ui/panel.ts"] }),
+      t("feed", { title: "Feed", role: "frontend", files_hint: ["src/server/**"] }),
+    ]));
+    const r = await new Planner(h2.project, h2.daemon.supervisor).plan("quotes", "chat", { chat: true });
+    expect(r.tasks.map((x) => [x.title, x.role])).toEqual([["Panel", "frontend"], ["Feed", "backend"]]);
+    expect(s2.adapters.get("rev")!.requests[0]!.prompt).toContain("<<<MESSAGE");
+    expect(h2.project.store.events.list({ projectId: h2.project.id, types: ["plan.reassigned"] }).map((e) => e.payload)).toEqual([
+      { key: "feed", from: "frontend", to: "backend", files: ["src/server/**"] },
+    ]);
+  });
 });

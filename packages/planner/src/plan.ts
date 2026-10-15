@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roleGuide } from "@harness/core";
 import { bullet, render } from "./prompts.js";
 import { extractJson } from "./validate.js";
 
@@ -56,16 +57,32 @@ export interface RoleInfo {
   mode: "readonly" | "write";
   instructions: string;
   pathsAllow: string[] | undefined;
+  concurrency?: number;
 }
 
-export function buildPlanPrompt(i: { document: string; roles: RoleInfo[]; repo: string; existing: { id: string; title: string; role: string; state: string }[] }): string {
-  const writeRoles = i.roles.filter((r) => r.mode === "write");
-  return render("plan", {
-    roles: bullet(writeRoles.map((r) => `\`${r.name}\`: ${r.instructions || "(no instructions)"}; may write ${r.pathsAllow?.join(", ") ?? "anywhere"}`)),
+type PlanPromptInput = { document: string; roles: RoleInfo[]; repo: string; existing: { id: string; title: string; role: string; state: string }[] };
+
+const roleLine = (r: RoleInfo, withConcurrency: boolean) =>
+  `\`${r.name}\`: ${roleGuide(r.name, r.instructions) || "(no instructions)"}; may write ${r.pathsAllow?.join(", ") ?? "anywhere"}` +
+  (withConcurrency ? `; ${r.concurrency ?? 1} at once` : "");
+
+function planVars(i: PlanPromptInput, withConcurrency: boolean) {
+  return {
+    roles: bullet(i.roles.filter((r) => r.mode === "write").map((r) => roleLine(r, withConcurrency))),
     repo: i.repo.trim() || "(empty)",
     existing: bullet(i.existing.map((t) => `${t.id} [${t.state}] ${t.role}: ${t.title}`)),
     document: i.document.trim(),
-  });
+  };
+}
+
+/** Prompt for `harness plan <file>`: a document split into a full task graph. */
+export function buildPlanPrompt(i: PlanPromptInput): string {
+  return render("plan", planVars(i, false));
+}
+
+/** Prompt for a chat message to the team: one parallel mini prompt per agent, fast. */
+export function buildDispatchPrompt(i: PlanPromptInput): string {
+  return render("dispatch", planVars(i, true));
 }
 
 export function buildPlanRetryPrompt(errors: string[]): string {

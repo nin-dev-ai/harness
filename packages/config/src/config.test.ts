@@ -218,6 +218,8 @@ describe("wizard config", () => {
     expect(config.roles.backend).toMatchObject({ route: "claude-opus", concurrency: 2, paths_allow: ["src/server/**"] });
     expect(config.roles.reviewer?.independent_of).toEqual(["backend", "frontend"]);
     expect(config.routes.cursor?.auth).toBe("subscription");
+    expect(config.roles.frontend?.instructions).toMatch(/^UI and client code/);
+    expect(config.roles.planner?.instructions).toMatch(/^Splits a request/);
     expect(warnings).toEqual([]);
   });
 });

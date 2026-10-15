@@ -1,4 +1,4 @@
-import type { HarnessConfig, Unattended, Vendor } from "@harness/core";
+import { roleGuide, type HarnessConfig, type Unattended, type Vendor } from "@harness/core";
 
 /** Default unattended policy: subscription routes ask, API-key routes allow. */
 export function effectiveUnattended(config: HarnessConfig, route: string): Unattended {
@@ -91,6 +91,8 @@ export interface WizardAgent {
   concurrency?: number;
   /** Default: the CLI's own login (no API key). */
   auth?: "subscription" | "api_key";
+  /** What this agent is for. Default: the built-in guide for its role name. */
+  instructions?: string;
 }
 
 const ROUTE_NAME: Record<Vendor, string> = { claude: "claude", codex: "codex", cursor: "cursor", fake: "fake" };
@@ -112,6 +114,8 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
   for (const a of agents) {
     const route = routeFor(a);
     roleLines.push(`  ${a.role}:`, `    route: ${route}`, `    mode: ${a.mode}`);
+    const guide = roleGuide(a.role, a.instructions);
+    if (guide) roleLines.push(`    instructions: ${JSON.stringify(guide)}`);
     if (a.mode === "write") {
       roleLines.push(`    concurrency: ${a.concurrency ?? 1}`);
       if (a.pathsAllow?.length) roleLines.push(`    paths_allow: [${a.pathsAllow.map((p) => JSON.stringify(p)).join(", ")}]`);
