@@ -14,6 +14,7 @@ import { pickRole, Planner } from "./planning.js";
 import { sizeOfRequest, titleOf } from "@harness/planner";
 import { BOARD_FILE, boardData, renderBoard } from "./board.js";
 import { Lead } from "./lead.js";
+import { qualityLedger, renderReport, requestReport } from "./report.js";
 import { suggestRoutes } from "./suggest.js";
 
 const P = z.object({ projectId: z.string(), attended: z.boolean().optional() });
@@ -364,6 +365,14 @@ export class EnginePlugin implements DaemonPlugin {
       "land.status": async (params, ctx) => {
         const { p } = ctxProject(params, ctx.attended);
         return { commits: await unlandedCount(p.root, p.config.integration_branch, p.config.base_branch), into: p.config.base_branch, from: p.config.integration_branch };
+      },
+      /** Who did what for a request, what it cost per subscription, and the quality ledger. */
+      report: (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const a = parse(P.extend({ index: z.number().int().optional() }), params);
+        const r = requestReport(p, a.index ?? -1);
+        const q = qualityLedger(p);
+        return { report: r ?? null, quality: q, text: renderReport(r, q) };
       },
       /** The team board (HARNESS.md) as Markdown. */
       board: (params, ctx) => {

@@ -151,3 +151,6 @@ Studies agree parallel agents help on independent parts and hurt on interdepende
 
 ## 2026-10-16 · M35 Request checklist
 Anthropic's long-running harness keeps a machine-readable feature list with pass/fail per item; prose summaries alone let "done" drift. The board now opens with a checklist for the latest request: every acceptance criterion of its tasks and of the lead's follow-ups for it (or the title when a task has none), marked `[x]` merged after harness's checks, `[~]` in progress, `[ ]` not started, `[!]` needs the person, `[-]` dropped. Harness ticks it from task states (rule 4: no model writes it); the lead is told to work from it and to verify `[x]` items it doubts.
+
+## 2026-10-16 · M36 Report: who did what, what it cost, how often it worked
+Pooling only proves itself with numbers. `harness report` / `/report` shows the latest request (or `--request n`): each task's role, route, model, state, attempts, working time and vendor-reported tokens; totals per subscription with the measured 5h-window delta where the vendor reports usage ("not measured" otherwise, never 0); planning and lead runs; and the lead's status. It ends with the PRD quality metric over the project's history (merged within 3 attempts, by implementing vendor). A one-agent baseline is not run automatically; the report says so rather than implying the team wins.

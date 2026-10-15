@@ -43,6 +43,7 @@ function fakeApi(snapshot: () => StatusSnapshot = BASE) {
       if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added line\n-removed line", checks: [{ checkId: "unit", ok: false, required: true }], gate: "gate.failed", findings: [], fileStats: [{ path: "src/ui/Watchlist.tsx", insertions: 30, deletions: 4 }] } as T;
       if (method === "dispatch") return { summary: "Quote feed first, then the panel.", tasks: [{ id: "T-008", title: "Quote feed", role: "backend", dependsOn: [] }, { id: "T-009", title: "Watchlist", role: "frontend", dependsOn: ["T-008"] }] } as T;
       if (method === "board") return { file: ".harness/HARNESS.md", text: "# Team board · market-terminal\n\n## Working now\n- **T-004** Watchlist panel · `frontend` (frontend-1, codex) · running" } as T;
+      if (method === "report") return { text: "# Report · build a watchlist\n\n## By subscription\n- codex-sub (codex): 2 runs" } as T;
       if (method === "land.status") return { commits: 2, into: "main", from: "harness/integration" } as T;
       if (method === "land") return { status: "landed", mode: "fast-forward", commits: 3, commit: "abc", into: "main", from: "harness/integration" } as T;
       if (method === "agent.message") return { taskId: "T-004", delivery: "now" } as T;
@@ -261,6 +262,10 @@ describe("chat with your team", () => {
     await send(ui, "/board");
     expect(ui.lastFrame()).toContain("Team board · market-terminal");
     expect(ui.lastFrame()).toContain("T-004 Watchlist panel · frontend (frontend-1, codex) · running");
+    ui.stdin.write("\u001B");
+    await flush();
+    await send(ui, "/report");
+    expect(ui.lastFrame()).toContain("- codex-sub (codex): 2 runs");
     ui.stdin.write("\u001B");
     await flush();
     await send(ui, "/land");

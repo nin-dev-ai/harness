@@ -204,8 +204,9 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         if (r.status === "conflict") return noteTeam("warn", `landing would conflict in ${r.files?.join(", ")}; nothing changed. Merge ${r.from} by hand.`);
         return noteTeam(r.status === "nothing" ? "sys" : "warn", r.detail ?? r.status);
       }
+      case "report":
       case "board": {
-        const r = await call<{ text: string }>("board");
+        const r = await call<{ text: string }>(p.name);
         if (r) {
           setScroll(0);
           setOverlay({ kind: "board", text: r.text });

@@ -52,6 +52,19 @@ describe("lead (compiler) agent", () => {
     expect(board).toContain("## Checklist for the latest request (4/4 done)");
     expect(board).toContain("- [x] T-002: error row shows");
     expect(s.adapters.get("rev")!.requests.find((r) => r.runId === "R-LEAD-2")!.prompt).toContain("- [x] T-002: error row shows");
+    // The report covers the request, the lead's follow-ups and the lead runs.
+    const { qualityLedger, renderReport, requestReport } = await import("@harness/daemon");
+    const rep = requestReport(h.project)!;
+    expect(rep.tasks.map((t) => [t.id, t.role, t.routes, t.state])).toEqual([
+      ["T-001", "backend", ["slow"], "MERGED"], ["T-002", "frontend", ["fast"], "MERGED"], ["T-003", "backend", ["slow"], "MERGED"], ["T-004", "backend", ["slow"], "MERGED"],
+    ]);
+    expect(rep.planning.runs).toBe(2);
+    expect(rep.endedAt).not.toBeNull();
+    expect(rep.lead).toBe("All done.");
+    const text = renderReport(rep, qualityLedger(h.project));
+    expect(text).toContain("# Report · Fix the 500 in src/server/feed.ts");
+    expect(text).toContain("- fake: 4/4 (100%), 1 attempt on average");
+    expect(text).toContain("A one-agent baseline");
   });
 
   it("without a lead role nothing extra runs", async () => {
