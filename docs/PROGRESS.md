@@ -43,4 +43,5 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M34 Split only independent work** — planned tasks whose files overlap are merged (same role) or ordered (different roles) in code, recorded as `plan.adjusted`; the chat prompt asks for splits by disjoint files.
 - [x] **M35 Request checklist** — the board lists every acceptance criterion of the latest request and its follow-ups, ticked from task states; the lead works from it.
 - [x] **M36 Report** — `harness report` / `/report`: per-task and per-subscription time, tokens and measured usage for a request, plus the quality ledger (merged within 3 attempts by vendor).
+- [x] **M37 Vendor drift check** — `doctor` checks every flag harness passes against each CLI's live `--help` (missing flag blocks; newer version warns); Claude Code 2.1.301 help re-recorded.
 

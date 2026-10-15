@@ -61,12 +61,6 @@ Options:
   --brief                               Enable SendUserMessage tool for
                                         agent-to-user communication
   --chrome                              Enable Claude in Chrome integration
-  --client-data-url <url>               URL for a signed configuration document.
-                                        Claude Code exits if it cannot load it
-                                        or it does not cover the selected model.
-                                        Setting CLAUDE_CODE_CLIENT_DATA_URL
-                                        instead keeps the URL out of the process
-                                        list
   --cloud [description|session_id|url]  Create a cloud session with the given
                                         description, or attach to an existing
                                         one by session ID or claude.ai/code URL
@@ -199,19 +193,19 @@ Options:
                                         --output-format=stream-json)
   --restricted                          Restricted mode: removes the built-in
                                         tools that run commands or code (Bash,
-                                        PowerShell, REPL and the other
-                                        code-running tools) and WebFetch unless
-                                        --tools names them, and ignores user,
-                                        project and local settings files
-                                        (managed settings and --settings still
-                                        apply; add --strict-mcp-config to skip
-                                        MCP servers too). Also confines the file
-                                        tools to the working directories
-                                        (--add-dir included), refuses
-                                        bypassPermissions, and lets only a
-                                        person or the configured permission
-                                        handler approve writes to settings, git
-                                        and tool-configuration files.
+                                        PowerShell and the other code-running
+                                        tools) and WebFetch unless --tools names
+                                        them, and ignores user, project and
+                                        local settings files (managed settings
+                                        and --settings still apply; add
+                                        --strict-mcp-config to skip MCP servers
+                                        too). Also confines the file tools to
+                                        the working directories (--add-dir
+                                        included), refuses bypassPermissions,
+                                        and lets only a person or the configured
+                                        permission handler approve writes to
+                                        settings, git and tool-configuration
+                                        files.
   -r, --resume [value]                  Resume a conversation by session ID, or
                                         open interactive picker with optional
                                         search term
@@ -270,10 +264,11 @@ Options:
 
 Commands:
   agents [options]                      Manage background agents
-  attach <id>                           Open a background session in this
+  attach <id|name>                      Open a background session in this
                                         terminal. <id> is the short id that
                                         `claude --bg` prints and `claude agents`
-                                        lists
+                                        lists. Part of the session name works
+                                        too
   auth                                  Manage authentication
   auto-mode                             Inspect or reset auto mode classifier
                                         configuration
@@ -289,11 +284,13 @@ Commands:
   install [options] [target]            Install Claude Code native build. Use
                                         [target] to specify version (stable,
                                         latest, or specific version)
-  logs <id>                             Print a background session's recent
+  logs <id|name>                        Print a background session's recent
                                         terminal output
   mcp                                   Configure and manage MCP servers
   plugin|plugins                        Manage Claude Code plugins
-  project                               Manage Claude Code project state
+  purge [options] [path]                Delete all Claude Code state for a
+                                        project (transcripts, tasks, file
+                                        history, config entry)
   respawn [options] [id]                Restart a background session, or all of
                                         them with --all, so it runs the current
                                         Claude Code version

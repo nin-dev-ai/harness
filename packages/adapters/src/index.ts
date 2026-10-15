@@ -6,3 +6,4 @@ export * from "./claude/index.js";
 export * from "./codex/index.js";
 export * from "./cursor/index.js";
 export * from "./registry.js";
+export * from "./drift.js";
