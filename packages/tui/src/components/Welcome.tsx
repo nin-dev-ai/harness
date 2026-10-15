@@ -12,7 +12,7 @@ export interface WelcomeAgent {
 }
 
 /** The welcome card: name, folder, and every agent with its tool and model. */
-export function Welcome({ t, version, project, folder, branch, agents, width, maxAgents }: { t: Theme; version: string; project: string; folder: string; branch: string; agents: WelcomeAgent[]; width: number; maxAgents: number }) {
+export function Welcome({ t, version, project, folder, branch, agents, width, maxAgents, unlanded = 0 }: { t: Theme; version: string; project: string; folder: string; branch: string; agents: WelcomeAgent[]; width: number; maxAgents: number; unlanded?: number }) {
   const shown = agents.slice(0, maxAgents);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={t.gradient[0]} paddingX={1} width={Math.min(width, 76)}>
@@ -23,6 +23,7 @@ export function Welcome({ t, version, project, folder, branch, agents, width, ma
       </Text>
       <Text color={C.dim} wrap="truncate-end">
         {folder} · ⎇ {branch}
+        {unlanded > 0 ? <Text color={t.accent}>{`  ${unlanded} commit${unlanded === 1 ? "" : "s"} ready to /land`}</Text> : null}
       </Text>
       <Text> </Text>
       <Text color={C.dim}>{agents.length === 1 ? "your agent" : `your ${agents.length} agents`}</Text>

@@ -615,7 +615,7 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         </Text>
       ))}
       <Text> </Text>
-      <Welcome t={t} version={version} project={snap.project.name} folder={shortFolder} branch={snap.project.integrationBranch} agents={homeAgents} width={columns} maxAgents={maxAgents} />
+      <Welcome t={t} version={version} project={snap.project.name} folder={shortFolder} branch={snap.project.integrationBranch} agents={homeAgents} width={columns} maxAgents={maxAgents} unlanded={store.unlanded} />
       <Text color={C.dim}> Describe what you want built and I'll split it across your agents.  <Text color={t.accent}>/agents</Text> who is doing what · <Text color={t.accent}>/usage</Text> limits · <Text color={t.accent}>Tab</Text> pick an agent</Text>
     </Box>
   ) : (

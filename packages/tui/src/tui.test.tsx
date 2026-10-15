@@ -43,6 +43,7 @@ function fakeApi(snapshot: () => StatusSnapshot = BASE) {
       if (method === "review.show") return { task: { id: "T-004", title: "Watchlist panel", state: "RUNNING" }, stat: "", diff: "+added line\n-removed line", checks: [{ checkId: "unit", ok: false, required: true }], gate: "gate.failed", findings: [], fileStats: [{ path: "src/ui/Watchlist.tsx", insertions: 30, deletions: 4 }] } as T;
       if (method === "dispatch") return { summary: "Quote feed first, then the panel.", tasks: [{ id: "T-008", title: "Quote feed", role: "backend", dependsOn: [] }, { id: "T-009", title: "Watchlist", role: "frontend", dependsOn: ["T-008"] }] } as T;
       if (method === "board") return { file: ".harness/HARNESS.md", text: "# Team board · market-terminal\n\n## Working now\n- **T-004** Watchlist panel · `frontend` (frontend-1, codex) · running" } as T;
+      if (method === "land.status") return { commits: 2, into: "main", from: "harness/integration" } as T;
       if (method === "land") return { status: "landed", mode: "fast-forward", commits: 3, commit: "abc", into: "main", from: "harness/integration" } as T;
       if (method === "agent.message") return { taskId: "T-004", delivery: "now" } as T;
       if (method === "task.add") return { id: "T-010" } as T;
@@ -84,6 +85,7 @@ describe("chat with your team", () => {
     expect(f).toContain("██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗");
     expect(f).toContain("╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝");
     expect(f).toContain("✦ harness v0.1.0");
+    expect(f).toContain("2 commits ready to /land");
     expect(f).toContain("market-terminal");
     expect(f).toContain("your 5 agents");
     expect(f).toMatch(/backend-1\s+claude\s+opus\s+idle/);

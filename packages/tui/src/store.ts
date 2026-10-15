@@ -60,6 +60,7 @@ export class TuiStore {
     this.off = this.api.onEvent((e) => this.onEvent(e));
     await this.api.subscribe();
     await this.refresh();
+    void this.refreshLand();
   }
 
   stop(): void {
@@ -75,6 +76,18 @@ export class TuiStore {
 
   emit(): void {
     for (const l of this.listeners) l();
+  }
+
+  /** Commits on the integration branch that your branch does not have yet. */
+  unlanded = 0;
+
+  async refreshLand(): Promise<void> {
+    try {
+      this.unlanded = (await this.api.call<{ commits: number }>("land.status"))?.commits ?? 0;
+      this.emit();
+    } catch {
+      // an older daemon without land.status: just do not show the count
+    }
   }
 
   async refresh(): Promise<void> {
@@ -138,6 +151,7 @@ export class TuiStore {
         void this.loadDetail(e.taskId);
       }
     }
+    if (e.type === "branch.merged" || e.type === "integration.landed" || e.type === "integration.rebuilt") void this.refreshLand();
     if (e.type === "lead.reported") {
       // The lead speaks in the team chat.
       this.note("_team", "say", `lead: ${e.payload.status}`);

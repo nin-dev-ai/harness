@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { HarnessError, type Task, type TaskSize } from "@harness/core";
 import { editHarnessConfig, findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
-import { changedFiles, diffSummary, diffText, landIntegration, rebuildOrphanedIntegration } from "@harness/workspace";
+import { changedFiles, diffSummary, diffText, landIntegration, rebuildOrphanedIntegration, unlandedCount } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
 import type { Guard } from "./guards.js";
 import { ProjectEngine } from "./outer-loop.js";
@@ -11,7 +11,7 @@ import type { ProjectRuntime } from "./project.js";
 import type { RpcHandler } from "./server.js";
 import { snapshot } from "./status.js";
 import { pickRole, Planner } from "./planning.js";
-import { sizeOfRequest } from "@harness/planner";
+import { sizeOfRequest, titleOf } from "@harness/planner";
 import { BOARD_FILE, boardData, renderBoard } from "./board.js";
 import { Lead } from "./lead.js";
 import { suggestRoutes } from "./suggest.js";
@@ -324,7 +324,7 @@ export class EnginePlugin implements DaemonPlugin {
         const picked = pickRole(p, a.document);
         if (picked.sure || !p.config.roles.planner) {
           // One agent's job (or no planner to ask): start it now, no planning run.
-          const t = p.createTask({ title: a.document.split("\n")[0]!.slice(0, 80), role: picked.role, body: a.document, size: sizeOfRequest(a.document) });
+          const t = p.createTask({ title: titleOf(a.document), role: picked.role, body: a.document, size: sizeOfRequest(a.document) });
           p.emit("task.routed", { role: picked.role, reason: picked.reason }, { taskId: t.id });
           created = [t];
           summary = `${picked.role} takes this (${picked.reason})`;
@@ -358,6 +358,11 @@ export class EnginePlugin implements DaemonPlugin {
         const r = await landIntegration(p.root, p.config.integration_branch, p.config.base_branch);
         if (r.status === "landed") p.emit("integration.landed", { into: p.config.base_branch, mode: r.mode, commit: r.commit, commits: r.commits });
         return { ...r, into: p.config.base_branch, from: p.config.integration_branch };
+      },
+      /** How many commits on the integration branch your branch does not have yet. */
+      "land.status": async (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        return { commits: await unlandedCount(p.root, p.config.integration_branch, p.config.base_branch), into: p.config.base_branch, from: p.config.integration_branch };
       },
       /** The team board (HARNESS.md) as Markdown. */
       board: (params, ctx) => {
