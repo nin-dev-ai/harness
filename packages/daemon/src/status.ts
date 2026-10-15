@@ -57,7 +57,8 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
   const live = [...engine.live.values()];
   const workers: WorkerView[] = p.store.workers.list(p.id).map((w) => {
     const l = live.find((x) => x.workerId === w.id);
-    const route = p.config.roles[w.role]?.route;
+    // A pooled role shows the route it is running on right now.
+    const route = l?.route ?? p.config.roles[w.role]?.route;
     return {
       ...w,
       vendor: route ? (p.config.routes[route]?.vendor ?? "?") : "?",

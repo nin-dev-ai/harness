@@ -93,6 +93,8 @@ export interface WizardAgent {
   auth?: "subscription" | "api_key";
   /** What this agent is for. Default: the built-in guide for its role name. */
   instructions?: string;
+  /** Other tools this agent may also run on: work goes wherever there is room. */
+  pool?: Vendor[];
 }
 
 const ROUTE_NAME: Record<Vendor, string> = { claude: "claude", codex: "codex", cursor: "cursor", fake: "fake" };
@@ -114,6 +116,10 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
   for (const a of agents) {
     const route = routeFor(a);
     roleLines.push(`  ${a.role}:`, `    route: ${route}`, `    mode: ${a.mode}`);
+    // Pool members use each tool's default model: a model id belongs to one vendor.
+    const { model: _model, ...plain } = a;
+    const pool = (a.pool ?? []).filter((v) => v !== a.vendor).map((v) => routeFor({ ...plain, vendor: v }));
+    if (pool.length) roleLines.push(`    pool: [${pool.join(", ")}]`);
     const guide = roleGuide(a.role, a.instructions);
     if (guide) roleLines.push(`    instructions: ${JSON.stringify(guide)}`);
     if (a.mode === "write") {

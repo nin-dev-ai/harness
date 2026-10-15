@@ -331,6 +331,12 @@ describe("setup wizard", () => {
     await flush();
     expect(ui.lastFrame()).toContain("agent 1 of 6: backend");
     expect(ui.lastFrame()).toContain("src/server/**");
+    // backend: tool → right twice → "all tools" pool
+    ui.stdin.write("\u001B[C");
+    await flush();
+    ui.stdin.write("\u001B[C");
+    await flush();
+    expect(ui.lastFrame()).toContain("all tools (claude + codex)");
     for (let i = 0; i < 6; i++) {
       ui.stdin.write("\r");
       await flush();
@@ -348,6 +354,8 @@ describe("setup wizard", () => {
       ["lead", "claude", "readonly"],
     ]);
     expect(r[2]).toMatchObject({ pathsAllow: ["src/**"] });
+    expect(r[0]).toMatchObject({ vendor: "claude", pool: ["codex"] });
+    expect(r[1]?.pool).toBeUndefined();
   });
 
   it("suggests write scopes from the repo's folders", () => {

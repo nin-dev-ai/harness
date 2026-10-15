@@ -219,6 +219,9 @@ describe("wizard config", () => {
     expect(config.roles.reviewer?.independent_of).toEqual(["backend", "frontend"]);
     expect(config.routes.cursor?.auth).toBe("subscription");
     expect(config.roles.frontend?.instructions).toMatch(/^UI and client code/);
+    const pooled = parseHarnessConfig(configFromWizard("shop", [{ role: "backend", vendor: "claude", model: "opus", mode: "write", pool: ["codex", "cursor"] }])).config;
+    expect(pooled.roles.backend).toMatchObject({ route: "claude-opus", pool: ["codex", "cursor"] });
+    expect(pooled.routes.codex).toMatchObject({ vendor: "codex", auth: "subscription" });
     expect(config.roles.planner?.instructions).toMatch(/^Splits a request/);
     expect(warnings).toEqual([]);
   });

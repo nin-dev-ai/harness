@@ -18,6 +18,8 @@ export interface WizardResult {
   mode: "readonly" | "write";
   pathsAllow?: string[];
   concurrency?: number;
+  /** Other tools this agent may also use; work goes wherever there is room. */
+  pool?: ("claude" | "codex" | "cursor")[];
 }
 
 export interface WizardProps {
@@ -70,6 +72,8 @@ interface Draft {
   model: string;
   scope: string;
   count: number;
+  /** Use every signed-in tool as one pool. */
+  pooled: boolean;
 }
 
 type Step = { kind: "tools" } | { kind: "roles" } | { kind: "agent"; index: number } | { kind: "summary" };
@@ -102,7 +106,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
         vendor = usable.find((v) => !used.has(v)) ?? usable[usable.length - 1]!;
       }
       if (p.role === "planner" || p.role === "lead") vendor = usable.includes("claude") ? "claude" : usable[0]!;
-      return { role: p.role, mode: p.mode, vendor, model: "", scope: p.mode === "write" ? suggestScope(p.role, folders) : "", count: 1 };
+      return { role: p.role, mode: p.mode, vendor, model: "", scope: p.mode === "write" ? suggestScope(p.role, folders) : "", count: 1, pooled: false };
     });
   };
 
@@ -166,8 +170,11 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
         return setStep(step.index + 1 < drafts.length ? { kind: "agent", index: step.index + 1 } : { kind: "summary" });
       }
       if (f === "tool" && (key.leftArrow || key.rightArrow || ch === " ")) {
-        const i = usable.indexOf(d.vendor);
-        return update({ vendor: usable[(i + (key.leftArrow ? usable.length - 1 : 1)) % usable.length]! });
+        // Choices: each tool, then (for writers with 2+ tools) "all tools" as one pool.
+        const choices = d.mode === "write" && usable.length > 1 ? usable.length + 1 : usable.length;
+        const i = d.pooled ? usable.length : usable.indexOf(d.vendor);
+        const n = (i + (key.leftArrow ? choices - 1 : 1)) % choices;
+        return update(n === usable.length ? { pooled: true, vendor: usable[0]! } : { pooled: false, vendor: usable[n]! });
       }
       if (f === "count" && (key.leftArrow || key.rightArrow)) return update({ count: Math.max(1, Math.min(4, d.count + (key.leftArrow ? -1 : 1))) });
       if (f === "model" || f === "writes") {
@@ -188,6 +195,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
               mode: d.mode,
               ...(d.model.trim() ? { model: d.model.trim() } : {}),
               ...(d.mode === "write" ? { concurrency: d.count, pathsAllow: d.scope.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
+              ...(d.pooled ? { pool: usable.filter((v) => v !== d.vendor) } : {}),
             })),
           ),
         );
@@ -269,7 +277,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
       <Box flexDirection="column" paddingX={1}>
         {title(3, `agent ${step.index + 1} of ${drafts.length}: ${d.role}`)}
         <Text> </Text>
-        {row("tool", `◂ ${d.vendor} ▸`, "←→ to change")}
+        {row("tool", `◂ ${d.pooled ? `all tools (${usable.join(" + ")})` : d.vendor} ▸`, d.pooled ? "work goes to whichever tool has room" : "←→ to change")}
         {row("model", d.model || "(tool default)", "type a model id, or leave empty")}
         {d.mode === "write" ? row("writes", d.scope, "folders it may change, comma-separated") : <Text color={C.dim}>  read-only: never edits files</Text>}
         {d.mode === "write" ? row("count", `◂ ${d.count} ▸`, "how many of this agent at once") : null}
@@ -289,7 +297,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
       {drafts.map((d) => (
         <Text key={d.role}>
           {"  "}
-          {d.role.padEnd(10)} {`${d.vendor}/${d.model || "default"}`.padEnd(20)}
+          {d.role.padEnd(10)} {(d.pooled ? usable.join("+") : `${d.vendor}/${d.model || "default"}`).padEnd(20)}
           <Text color={C.dim}>{d.mode === "write" ? `writes ${d.scope}${d.count > 1 ? `  ×${d.count}` : ""}` : "read-only"}</Text>
         </Text>
       ))}
