@@ -33,3 +33,6 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M24 Fresh daemon** — the daemon reports which build it runs; the CLI restarts a daemon started from an older build of the same entry file when no agent is mid-run (and says so when runs are in flight), so `harness` never talks to old code after a rebuild.
 - [x] **M25 Agent terminals** — one real terminal window per agent: `harness watch <agent>` streams an agent's live session in any terminal, and `/windows` opens one per agent.
 - [x] **M26 Faster reviews** — the review prompt asks for a verdict from the diff, not a repository audit; `limits.review_sizes` (setup writes `[M, L]`) lets small tasks merge once harness's own checks pass.
+- [x] **M27 Docs** — README and `/help` describe routing, the board, the lead, pools, tiers, watch and land.
+- [x] **M28 Live team run** — `scripts/live-team.sh` (real Claude, Codex if signed in) passed on 2026-10-15: `harness tell` routed a server task straight to `backend` with no planning run, Claude implemented it, harness's checks passed, the agent's `NOTE:` lines reached the board, the lead (real Claude) re-ran the tests and reported the request done, and `harness land` fast-forwarded `main`.
+
