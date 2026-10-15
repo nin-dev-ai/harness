@@ -1,4 +1,4 @@
-import { roleGuide, type HarnessConfig, type Unattended, type Vendor } from "@harness/core";
+import { roleGuide, type HarnessConfig, type ModelTiers, type Unattended, type Vendor } from "@harness/core";
 
 /** Default unattended policy: subscription routes ask, API-key routes allow. */
 export function effectiveUnattended(config: HarnessConfig, route: string): Unattended {
@@ -95,6 +95,8 @@ export interface WizardAgent {
   instructions?: string;
   /** Other tools this agent may also run on: work goes wherever there is room. */
   pool?: Vendor[];
+  /** Model per task size, e.g. { S: "haiku", L: "opus" }. */
+  models?: ModelTiers;
 }
 
 const ROUTE_NAME: Record<Vendor, string> = { claude: "claude", codex: "codex", cursor: "cursor", fake: "fake" };
@@ -104,11 +106,13 @@ const ROUTE_NAME: Record<Vendor, string> = { claude: "claude", codex: "codex", c
  * to them. Cursor routes use an API key; Claude and Codex use the signed-in subscription.
  */
 export function configFromWizard(project: string, agents: WizardAgent[]): string {
-  const routes = new Map<string, { vendor: Vendor; model?: string; auth: "subscription" | "api_key" }>();
+  const routes = new Map<string, { vendor: Vendor; model?: string; models?: Partial<Record<"S" | "M" | "L", string>>; auth: "subscription" | "api_key" }>();
+  const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const routeFor = (a: WizardAgent) => {
     const base = ROUTE_NAME[a.vendor];
-    const name = a.model ? `${base}-${a.model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : base;
-    routes.set(name, { vendor: a.vendor, auth: a.auth ?? "subscription", ...(a.model ? { model: a.model } : {}) });
+    const tiers = a.models && Object.keys(a.models).length ? a.models : undefined;
+    const name = tiers ? `${base}-${slug(Object.values(tiers).join("-"))}` : a.model ? `${base}-${slug(a.model)}` : base;
+    routes.set(name, { vendor: a.vendor, auth: a.auth ?? "subscription", ...(a.model ? { model: a.model } : {}), ...(tiers ? { models: tiers } : {}) });
     return name;
   };
   const roleLines: string[] = [];
@@ -117,7 +121,7 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
     const route = routeFor(a);
     roleLines.push(`  ${a.role}:`, `    route: ${route}`, `    mode: ${a.mode}`);
     // Pool members use each tool's default model: a model id belongs to one vendor.
-    const { model: _model, ...plain } = a;
+    const { model: _model, models: _models, ...plain } = a;
     const pool = (a.pool ?? []).filter((v) => v !== a.vendor).map((v) => routeFor({ ...plain, vendor: v }));
     if (pool.length) roleLines.push(`    pool: [${pool.join(", ")}]`);
     const guide = roleGuide(a.role, a.instructions);
@@ -132,6 +136,7 @@ export function configFromWizard(project: string, agents: WizardAgent[]): string
   for (const [name, r] of routes) {
     routeLines.push(`  ${name}:`, `    vendor: ${r.vendor}`, `    auth: ${r.auth === "api_key" ? `api_key${r.vendor === "cursor" ? "                # reads CURSOR_API_KEY" : ""}` : "subscription"}`);
     if (r.model) routeLines.push(`    model: ${r.model}`);
+    if (r.models) routeLines.push(`    models: { ${Object.entries(r.models).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")} }`);
   }
   return `# Made by the harness setup wizard. Edit freely; \`harness config check\` validates it.
 version: 1

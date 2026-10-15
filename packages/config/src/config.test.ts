@@ -222,6 +222,12 @@ describe("wizard config", () => {
     const pooled = parseHarnessConfig(configFromWizard("shop", [{ role: "backend", vendor: "claude", model: "opus", mode: "write", pool: ["codex", "cursor"] }])).config;
     expect(pooled.roles.backend).toMatchObject({ route: "claude-opus", pool: ["codex", "cursor"] });
     expect(pooled.routes.codex).toMatchObject({ vendor: "codex", auth: "subscription" });
+    const { parseModelField } = await import("@harness/core");
+    expect(parseModelField("S=haiku, m=sonnet ,L=opus")).toEqual({ models: { S: "haiku", M: "sonnet", L: "opus" } });
+    expect(parseModelField("gpt-5")).toEqual({ model: "gpt-5" });
+    const tiered = parseHarnessConfig(configFromWizard("shop", [{ role: "backend", vendor: "claude", mode: "write", ...parseModelField("S=haiku,L=opus") }])).config;
+    expect(tiered.roles.backend?.route).toBe("claude-haiku-opus");
+    expect(tiered.routes["claude-haiku-opus"]).toMatchObject({ vendor: "claude", models: { S: "haiku", L: "opus" } });
     expect(config.roles.planner?.instructions).toMatch(/^Splits a request/);
     expect(warnings).toEqual([]);
   });

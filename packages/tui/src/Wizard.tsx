@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { GradientText } from "./components/Logo.js";
+import { parseModelField, type ModelTiers } from "@harness/core";
 import { C, THEMES } from "./theme.js";
 
 export interface WizardTool {
@@ -20,6 +21,8 @@ export interface WizardResult {
   concurrency?: number;
   /** Other tools this agent may also use; work goes wherever there is room. */
   pool?: ("claude" | "codex" | "cursor")[];
+  /** Model per task size, from "S=…, M=…, L=…" in the model field. */
+  models?: ModelTiers;
 }
 
 export interface WizardProps {
@@ -193,7 +196,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
               role: d.role,
               vendor: d.vendor,
               mode: d.mode,
-              ...(d.model.trim() ? { model: d.model.trim() } : {}),
+              ...parseModelField(d.model),
               ...(d.mode === "write" ? { concurrency: d.count, pathsAllow: d.scope.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
               ...(d.pooled ? { pool: usable.filter((v) => v !== d.vendor) } : {}),
             })),
@@ -278,7 +281,7 @@ export function Wizard({ project, tools, folders, onDone, onCancel }: WizardProp
         {title(3, `agent ${step.index + 1} of ${drafts.length}: ${d.role}`)}
         <Text> </Text>
         {row("tool", `◂ ${d.pooled ? `all tools (${usable.join(" + ")})` : d.vendor} ▸`, d.pooled ? "work goes to whichever tool has room" : "←→ to change")}
-        {row("model", d.model || "(tool default)", "type a model id, or leave empty")}
+        {row("model", d.model || "(tool default)", "a model id, or S=small,M=mid,L=big to pick by task size")}
         {d.mode === "write" ? row("writes", d.scope, "folders it may change, comma-separated") : <Text color={C.dim}>  read-only: never edits files</Text>}
         {d.mode === "write" ? row("count", `◂ ${d.count} ▸`, "how many of this agent at once") : null}
         <Text> </Text>
