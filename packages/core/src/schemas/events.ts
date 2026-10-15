@@ -74,6 +74,8 @@ export const EVENT_PAYLOADS = {
   // Git
   "worktree.created": z.object({ path: s, branch: s, base: s }),
   "worktree.removed": z.object({ path: s }),
+  "integration.landed": z.object({ into: s, mode: z.enum(["fast-forward", "merge"]), commit: s, commits: z.number().int() }),
+  "integration.rebuilt": z.object({ kept: s, base: s }),
   "branch.merged": z.object({ branch: s, into: s, commit: s, files: z.array(s).optional() }),
   "merge.conflict": z.object({ branch: s, files: z.array(s) }),
   "pr.opened": z.object({ url: s, branch: s }),

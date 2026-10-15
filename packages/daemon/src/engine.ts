@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { HarnessError, type Task, type TaskSize } from "@harness/core";
 import { editHarnessConfig, findCycle, readTaskFile, setRouteLimit, writeTaskFile } from "@harness/config";
-import { changedFiles, diffSummary, diffText } from "@harness/workspace";
+import { changedFiles, diffSummary, diffText, landIntegration, rebuildOrphanedIntegration } from "@harness/workspace";
 import type { Daemon, DaemonPlugin } from "./daemon.js";
 import type { Guard } from "./guards.js";
 import { ProjectEngine } from "./outer-loop.js";
@@ -60,6 +60,11 @@ export class EnginePlugin implements DaemonPlugin {
     if (this.engines.has(p.id) || !this.daemon) return;
     const e = new ProjectEngine(p, this.daemon.supervisor, this.guardFactory(p, this.daemon, () => this.engines.get(p.id)?.kick()), { attended: () => this.isAttended() });
     this.engines.set(p.id, e);
+    // A base branch with rewritten history leaves the integration branch unlandable: keep it, start fresh.
+    void rebuildOrphanedIntegration(p.root, p.config.integration_branch, p.config.base_branch, p.now())
+      .then((kept) => kept && p.emit("integration.rebuilt", { kept, base: p.config.base_branch }))
+      .catch(() => undefined)
+      .finally(() => e.kick()); // work starts only after the branch is sound
     // The lead looks at each batch of team work once it settles.
     const lead = new Lead(p, this.daemon.supervisor, (ids) => {
       this.approve(p, ids);
@@ -73,7 +78,6 @@ export class EnginePlugin implements DaemonPlugin {
         if (ev.projectId === p.id && ev.type === "task.state_changed" && settle.has(ev.payload.to)) void lead.check().catch(() => undefined);
       }),
     );
-    e.kick();
   }
 
   lead(projectId: string): Lead | undefined {
@@ -347,6 +351,13 @@ export class EnginePlugin implements DaemonPlugin {
         new Planner(p, d.supervisor).applyRoles(a.proposal);
         e.kick();
         return { roles: Object.keys(p.config.roles) };
+      },
+      /** Bring finished work from the integration branch into the base branch. Only on request. */
+      land: async (params, ctx) => {
+        const { p } = ctxProject(params, ctx.attended);
+        const r = await landIntegration(p.root, p.config.integration_branch, p.config.base_branch);
+        if (r.status === "landed") p.emit("integration.landed", { into: p.config.base_branch, mode: r.mode, commit: r.commit, commits: r.commits });
+        return { ...r, into: p.config.base_branch, from: p.config.integration_branch };
       },
       /** The team board (HARNESS.md) as Markdown. */
       board: (params, ctx) => {
