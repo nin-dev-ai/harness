@@ -31,6 +31,8 @@ export interface AppProps {
   /** Shown once in the team feed when the screen opens. */
   welcome?: string;
   version?: string;
+  /** Open one real terminal window per agent (`harness watch <agent>`). */
+  openWindows?(agents: string[]): Promise<{ opened: string[]; manual: string[] }>;
 }
 
 type Overlay = { kind: "none" } | { kind: "help" } | { kind: "usage" } | { kind: "agents" } | { kind: "tasks" } | { kind: "board"; text: string } | { kind: "panes" } | { kind: "zoom" } | { kind: "review" | "diff"; data: ReviewData };
@@ -61,7 +63,7 @@ function statusOf(w: WorkerView): { label: string; color?: string | undefined } 
  * bar sends your message to the whole team (the planner splits it) or, after
  * Tab, straight to one agent.
  */
-export function App({ store, onExit, size, theme: themeName, onTheme, welcome, version = "0.1.0" }: AppProps) {
+export function App({ store, onExit, size, theme: themeName, onTheme, welcome, version = "0.1.0", openWindows }: AppProps) {
   const [, force] = useReducer((n: number) => n + 1, 0);
   useEffect(() => store.onChange(force), [store]);
   const snap: StatusSnapshot | null = store.snapshot;
@@ -187,6 +189,14 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
         return setOverlay({ kind: "agents" });
       case "tasks":
         return setOverlay({ kind: "tasks" });
+      case "windows": {
+        const agents = workers.filter((w) => w.role !== "planner" && w.role !== "lead").map((w) => w.id);
+        if (!openWindows) return noteTeam("warn", `open a terminal per agent and run: ${agents.map((a) => `harness watch ${a}`).join(" · ")}`);
+        const r = await openWindows(agents);
+        if (r.opened.length) noteTeam("ok", `opened a terminal for ${r.opened.join(", ")}`);
+        if (r.manual.length) noteTeam("sys", `run these in your own terminals:\n${r.manual.join("\n")}`);
+        return;
+      }
       case "land": {
         const r = await call<{ status: string; mode?: string; commits?: number; detail?: string; files?: string[]; into: string; from: string }>("land");
         if (!r) return;

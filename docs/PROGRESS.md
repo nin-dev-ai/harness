@@ -31,5 +31,5 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M22 Model tiers** — a route may map task sizes to models (`models: {S: haiku, M: sonnet, L: opus}`); the planner's size picks the model.
 - [x] **M23 Land** — `/land` brings finished integration work into your branch; an integration branch with no shared history with the base is rebuilt from it.
 - [x] **M24 Fresh daemon** — the daemon reports which build it runs; the CLI restarts a daemon started from an older build of the same entry file when no agent is mid-run (and says so when runs are in flight), so `harness` never talks to old code after a rebuild.
-- [ ] **M25 Agent terminals** — one real terminal window per agent: `harness watch <agent>` streams an agent's live session in any terminal, and `/windows` opens one per agent.
+- [x] **M25 Agent terminals** — one real terminal window per agent: `harness watch <agent>` streams an agent's live session in any terminal, and `/windows` opens one per agent.
 

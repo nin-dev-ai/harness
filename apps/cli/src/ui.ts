@@ -6,6 +6,7 @@ import { slugify } from "@harness/core";
 import { harnessHome } from "@harness/daemon";
 import { git, isGitRepo, repoRoot } from "@harness/workspace";
 import type { Ctx } from "./ctx.js";
+import { openAgentWindows } from "./terminals.js";
 import { openProject, type ProjectSession } from "./commands/_client.js";
 import { detectVendors, initProject } from "./commands/init.js";
 import { CliExit, EXIT } from "./io.js";
@@ -83,7 +84,10 @@ export async function openUi(ctx: Ctx): Promise<void> {
     };
     let exit;
     try {
-      exit = await runTui(api, { prefsFile: path.join(harnessHome(ctx.io.env), "ui.json"), version: VERSION, ...(welcome ? { welcome } : {}) });
+      exit = await runTui(api, {
+        prefsFile: path.join(harnessHome(ctx.io.env), "ui.json"), version: VERSION, ...(welcome ? { welcome } : {}),
+        openWindows: (agents) => openAgentWindows(root, agents, ctx.io.env),
+      });
       welcome = undefined;
     } finally {
       if (exit?.action !== "attach") sess.close();

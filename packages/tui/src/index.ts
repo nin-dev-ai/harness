@@ -18,6 +18,7 @@ export interface RunTuiOptions {
   /** Where to remember the chosen theme. */
   prefsFile?: string;
   version?: string;
+  openWindows?(agents: string[]): Promise<{ opened: string[]; manual: string[] }>;
 }
 
 function readPrefs(file?: string): { theme?: string } {
@@ -41,6 +42,7 @@ export async function runTui(api: TuiApi, o: RunTuiOptions = {}): Promise<UiExit
       ...(prefs.theme ? { theme: prefs.theme } : {}),
       ...(o.welcome ? { welcome: o.welcome } : {}),
       ...(o.version ? { version: o.version } : {}),
+      ...(o.openWindows ? { openWindows: o.openWindows } : {}),
       onTheme: (name: string) => {
         if (!o.prefsFile) return;
         try {
