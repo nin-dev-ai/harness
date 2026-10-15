@@ -118,3 +118,6 @@ Users should not have to say which agent does what. A deterministic router (`@ha
 
 ## 2026-10-15 · M18 Team board
 Agents run in separate vendor sessions, so each one only knew its own task. One board, `.harness/HARNESS.md`, is now the shared memory: rebuilt from the event log on every relevant event (rule 4: no model writes it), and carried in every task prompt (capped at 6,000 characters). Agents contribute through `NOTE:` lines in their final summary, which harness lifts onto the board. It lives under `.harness/` so it never enters task branches or merges. `/board` and `harness board` show it.
+
+## 2026-10-15 · M19 Context handoff and budget
+Splitting work across sessions loses context in two ways: a dependent agent does not know what the agent before it built, and one long session fills up until the vendor compacts it. Dependent tasks now get a "This task builds on" section (each dependency's summary, changed files and notes). `limits.fresh_session_after_tokens` (default 400k) caps how much input context a session may carry: past it, harness does not resume that session but starts a fresh one from the task prompt, board and diff (`session.refreshed`). The token count is the largest per-run input figure the vendor reports (Claude reports run totals including cache reads), so it is a conservative proxy, not an exact window size.

@@ -33,7 +33,7 @@ import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
 import { TmuxMirror } from "./tmux.js";
-import { BoardWriter, boardForPrompt } from "./board.js";
+import { BoardWriter, boardForPrompt, handoffFor } from "./board.js";
 
 interface LiveRun {
   runId: string;
@@ -332,6 +332,7 @@ export class ProjectEngine {
       pathsDeny: role.paths_deny,
       checks: this.p.checks.checks.map((c) => ({ id: c.id, argv: c.argv, required: c.required })),
       board: boardForPrompt(this.p),
+      handoff: handoffFor(this.p, task),
     });
   }
 
@@ -389,15 +390,37 @@ export class ProjectEngine {
     });
   }
 
-  /** Vendor session to resume: only from the latest implementer run, and only on the same route. */
+  /**
+   * Vendor session to resume: only from the latest implementer run, only on
+   * the same route, and only while it carries less context than the budget.
+   * A full session is left behind (the agent would be working from a
+   * compacted, lossy context); the next run starts fresh from the board.
+   */
   private lastSession(taskId: string, route: string): string | undefined {
     const runs = this.implementerRuns(taskId);
     for (let i = runs.length - 1; i >= 0; i--) {
       const r = runs[i]!;
       if (r.errorKind === "session_expired" || r.route !== route) return undefined;
-      if (r.vendorSessionId) return r.vendorSessionId;
+      if (!r.vendorSessionId) continue;
+      const tokens = this.sessionTokens(r.id);
+      const budget = this.p.config.limits.fresh_session_after_tokens;
+      if (tokens >= budget) {
+        this.p.emit("session.refreshed", { sessionId: r.vendorSessionId, tokens, budget }, { taskId, runId: r.id });
+        return undefined;
+      }
+      return r.vendorSessionId;
     }
     return undefined;
+  }
+
+  /** Largest input-token count a run reported: how much context its session carries. */
+  private sessionTokens(runId: string): number {
+    let max = 0;
+    for (const e of this.p.store.events.list({ projectId: this.p.id, runId, types: ["run.event"] })) {
+      const ev = (e.payload as { event?: { type?: string; tokensIn?: number } }).event;
+      if (ev?.type === "usage" && typeof ev.tokensIn === "number") max = Math.max(max, ev.tokensIn);
+    }
+    return max;
   }
 
   private async repairPrompt(task: Task, worktree: string): Promise<string> {

@@ -8,7 +8,7 @@ You are the **{{role}}** agent on a team of coding agents. You are working on on
 
 ### Acceptance criteria
 {{acceptance}}
-
+{{handoff}}
 ## The team board
 Other agents work on the same project in their own sessions. This board is the shared picture: what the person asked for, who is doing what, and what is already done. Build on finished work instead of redoing it, and stay out of files another agent is changing right now.
 

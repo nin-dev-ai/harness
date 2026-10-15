@@ -144,3 +144,26 @@ export class BoardWriter {
     }
   }
 }
+
+/**
+ * What a task builds on: for each dependency, what its agent did, the files it
+ * changed and the notes it left. Goes into the task prompt so a dependent
+ * agent starts from the facts instead of rediscovering them.
+ */
+export function handoffFor(p: ProjectRuntime, task: Task): string {
+  if (!task.dependsOn.length) return "";
+  const d = boardData(p);
+  const parts: string[] = [];
+  for (const id of task.dependsOn) {
+    const t = d.tasks.find((x) => x.id === id);
+    if (!t) continue;
+    const notes = d.notes.filter((n) => n.taskId === id).map((n) => `  - note: ${oneLine(n.text)}`);
+    parts.push(
+      `- **${t.id}** ${t.title} (\`${t.role}\`${t.agent ? `, ${t.agent}` : ""}) · ${t.state.toLowerCase()}`,
+      ...(t.summary ? [`  - did: ${clip(oneLine(t.summary), 800)}`] : []),
+      ...(t.files?.length ? [`  - changed: ${t.files.slice(0, 30).map((f) => `\`${f}\``).join(", ")}`] : []),
+      ...notes,
+    );
+  }
+  return parts.join("\n");
+}

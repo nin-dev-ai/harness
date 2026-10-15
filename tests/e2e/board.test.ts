@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { notesIn, renderBoard } from "@harness/daemon";
-import { byMode, createScenario, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
+import { approve, byMode, createScenario, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
 
 /** M18: one shared team board, rebuilt from events and carried in every prompt. */
 describe("team board (HARNESS.md)", () => {
@@ -57,4 +57,36 @@ describe("team board (HARNESS.md)", () => {
     expect(file).toContain("**T-002** Watchlist");
     expect(file).toContain("## Working now\n- nobody");
   });
+
+  it("a session past the context budget is left behind: the repair starts fresh from the board", async () => {
+    s = createScenario({ config: (await import("../helpers/scenario.js")).DEFAULT_CONFIG.replace("  max_attempts_per_task: 3", "  max_attempts_per_task: 3\n  fresh_session_after_tokens: 100000") });
+    h = await startHarness(s);
+    let n = 0;
+    s.scripts.set("T-001", (req) => (req.mode === "readonly" ? approve() : n++ === 0
+      ? { sessionId: "big", steps: [{ kind: "file_change", path: "src/server/a.ts", content: "a\n" }, { kind: "file_change", path: "FAIL", content: "boom" }, { kind: "usage", tokensIn: 180_000 }, { kind: "result", ok: true, summary: "first try" }] }
+      : { sessionId: "fresh", steps: [{ kind: "file_change", path: "FAIL", delete: true }, { kind: "result", ok: true, summary: "fixed" }] }));
+    const t = h.project.createTask({ title: "Feed", role: "backend", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    const repair = s.adapters.get("slow")!.requests[1]!;
+    expect(repair.resumeSessionId).toBeUndefined();
+    expect(repair.prompt).toContain("<<<BOARD");
+    expect(repair.prompt).toContain("Task T-001: Feed");
+    expect(h.project.store.events.list({ projectId: h.project.id, types: ["session.refreshed"] }).map((e) => e.payload)).toEqual([{ sessionId: "big", tokens: 180_000, budget: 100_000 }]);
+  });
+
+  it("a dependent task's prompt says what it builds on", async () => {
+    s = createScenario();
+    h = await startHarness(s);
+    s.scripts.set("T-001", byMode({ steps: [{ kind: "file_change", path: "src/shared/types.ts", content: "export type Quote = {};\n" }, { kind: "result", ok: true, summary: "Added the Quote type.\nNOTE: import Quote from src/shared/types.ts" }] }));
+    s.scripts.set("T-002", byMode(writes({ "src/ui/q.ts": "q\n" })));
+    const a = h.project.createTask({ title: "Quote type", role: "backend", state: "QUEUED" });
+    const b = h.project.createTask({ title: "Quote row", role: "frontend", dependsOn: [a.id], state: "QUEUED" });
+    h.engine.start();
+    await h.until(b.id, "MERGED");
+    const prompt = s.adapters.get("fast")!.requests[0]!.prompt;
+    expect(prompt).toContain("### This task builds on");
+    expect(prompt).toContain("- **T-001** Quote type (`backend`, backend-1) · merged\n  - did: Added the Quote type.\n  - changed: `src/shared/types.ts`\n  - note: import Quote from src/shared/types.ts");
+  });
 });
+

@@ -14,6 +14,8 @@ export interface TaskPromptInput {
   checks: { id: string; argv: string[]; required: boolean }[];
   /** The team board (HARNESS.md): what everyone else is doing and has done. */
   board?: string;
+  /** What the tasks this one depends on did, changed and noted. */
+  handoff?: string;
 }
 
 const checkList = (checks: TaskPromptInput["checks"]) =>
@@ -34,6 +36,7 @@ export function buildTaskPrompt(i: TaskPromptInput): string {
     pathsDeny: i.pathsDeny.length ? i.pathsDeny.map((p) => `\`${p}\``).join(", ") : "(nothing extra)",
     checks: checkList(i.checks),
     board: i.board?.trim() ? i.board.trim() : "(no board yet)",
+    handoff: i.handoff?.trim() ? `\n### This task builds on\nThese tasks are merged into your starting point. Use what they built; do not redo it.\n${i.handoff.trim()}\n` : "",
   });
 }
 

@@ -25,7 +25,7 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M16 Launch screen** — the big block-letter HARNESS banner and welcome card on every launch (not only on an empty project), until you start typing.
 - [x] **M17 Auto-routing** — no `@role` tagging: `/task` and direct work go to the right agent from role guides and folder scopes; the planner only runs when work spans agents.
 - [x] **M18 Team board (HARNESS.md)** — one unified `.harness/HARNESS.md` regenerated from events: goal, who is working on what, what each finished agent did and changed, notes agents leave (`NOTE:` lines), open problems. Every agent prompt carries it.
-- [ ] **M19 Context handoff** — dependent tasks get their dependencies' summaries and changed files; sessions over a context budget restart fresh from the board + handoff instead of resuming into a compacted context.
+- [x] **M19 Context handoff** — dependent tasks get their dependencies' summaries and changed files; sessions over a context budget restart fresh from the board + handoff instead of resuming into a compacted context.
 - [ ] **M20 Lead (compiler) agent** — a read-only `lead` role that, when a batch of chat work settles, reads the board and returns a status line and at most a few small follow-up jobs (validated, capped, auto-approved, bounded depth).
 - [ ] **M21 Subscription pooling** — a role may list several routes (`routes: [claude, codex]`); each task goes to the route with the most headroom, so work flows across subscriptions instead of stopping at one limit.
 - [ ] **M22 Model tiers** — a route may map task sizes to models (`models: {S: haiku, M: sonnet, L: opus}`); the planner's size picks the model.
