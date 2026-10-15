@@ -49,12 +49,25 @@ export function buildProgram(io: Io): Command {
   for (const m of [init, doctor, roles, routes, plan, task, approve, board, land, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config, watch, tell]) m.register(program, ctx);
   program
     .command("setup")
-    .description("Run the setup wizard: pick agents, tools, models and write scopes (rewrites harness.yaml)")
-    .action(async () => {
-      const { setupWizard } = await import("./ui.js");
+    .description("Run the setup wizard (rewrites harness.yaml), or --upgrade an existing harness.yaml in place")
+    .option("--upgrade", "add what newer harness versions use (role descriptions, a lead agent, review sizes), keeping your edits")
+    .option("--pool", "with --upgrade: let each writing agent also use your other tools (work goes where there is room)")
+    .option("--dry-run", "with --upgrade: show the changes without writing them")
+    .action(async (o: { upgrade?: boolean; pool?: boolean; dryRun?: boolean }) => {
       const { repoRoot } = await import("@harness/workspace");
-      if (!process.stdout.isTTY) throw new CliExit(EXIT.usage, "setup needs a terminal");
       const root = await repoRoot(ctx.dir());
+      if (o.upgrade) {
+        const { upgradeHarnessConfig } = await import("@harness/config");
+        const r = upgradeHarnessConfig(root, { pool: Boolean(o.pool), dryRun: Boolean(o.dryRun) });
+        if (ctx.json()) return ctx.printJson(r);
+        if (!r.changes.length) io.out("harness.yaml is up to date.");
+        else io.out(`${o.dryRun ? "would add" : "added"}:\n${r.changes.map((c) => `  + ${c}`).join("\n")}`);
+        for (const h of r.hints) io.out(`  tip: ${h}`);
+        if (r.changes.length && !o.dryRun) await (await import("./commands/routes.js")).notifyReload(ctx);
+        return;
+      }
+      const { setupWizard } = await import("./ui.js");
+      if (!process.stdout.isTTY) throw new CliExit(EXIT.usage, "setup needs a terminal (or use --upgrade)");
       const ok = await setupWizard(ctx, root);
       if (ok) await (await import("./commands/routes.js")).notifyReload(ctx);
       io.out(ok ? "saved harness.yaml. Type `harness` to open the panel." : "setup cancelled; nothing was written.");

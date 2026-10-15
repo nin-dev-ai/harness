@@ -80,6 +80,7 @@ Everything is also a plain command, for scripts:
 
 ```sh
 harness init           # detects CLIs and sign-in, proposes .harness/checks.yaml, prints a readiness report
+harness setup --upgrade [--pool]   # bring an older harness.yaml up to date, keeping your edits
 harness doctor         # exits 1 if anything blocks a run, with the exact fix command
 # edit harness.yaml: routes (vendor + auth + model) and roles (who writes where)
 harness task add "Add a /health endpoint" --approve   # harness picks the agent (or pass --role)
