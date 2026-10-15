@@ -8,10 +8,13 @@ export function Help({ t }: { t: Theme }) {
     <Box flexDirection="column" paddingX={1}>
       <GradientText text="how this works" t={t} bold />
       <Text>
-        <Text color={t.you}>type a message</Text> and the planner splits it into mini prompts, one per agent, then starts them.
+        <Text color={t.you}>type a message</Text>: one agent's job starts on that agent at once; work for several goes to the planner, which splits it. No need to name an agent.
       </Text>
       <Text>
         <Text color={t.you}>Tab</Text> picks one agent: its live session shows here and your messages go straight to it. Tab back to <Text bold>team</Text>.
+      </Text>
+      <Text>
+        Every agent reads the team board (<Text color={t.you}>/board</Text>); the lead checks each finished round and sets follow-ups. <Text color={t.you}>/land</Text> brings the work into your branch.
       </Text>
       <Text>
         <Text color={t.you}>/</Text> opens commands. <Text color={C.dim}>Ctrl-C closes harness; agents keep working. /stop stops them.</Text>

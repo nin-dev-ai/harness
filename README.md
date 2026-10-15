@@ -1,15 +1,15 @@
 # harness
 
-Run Claude Code, Codex and Cursor's agent as **one coordinated team from one terminal**.
+Run Claude Code, Codex and Cursor's agent as **one coordinated team from one terminal**, the glue that stretches several modest subscriptions further than one big one.
 
-You declare roles (`frontend: codex`, `backend: claude`, `reviewer: cursor`), and harness runs one worker per role, each in its own git worktree and branch. It then:
+You say what you want. harness picks the right agent for each part (no `@tagging`), runs each one in its own git worktree and branch, keeps one shared team board so no agent loses the thread, and a **lead** agent checks every finished round and sets small follow-ups. It then:
 
 - checks every task with **your own tests**, run independently of the agent;
 - sends failures back to the same agent session as a bounded repair loop;
 - has a read-only reviewer check the diff;
-- merges passing work into a local `harness/integration` branch. It **never touches `main`**.
+- merges passing work into a local `harness/integration` branch. It only touches `main` when you run `harness land`.
 
-It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset.
+It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset. A role can **pool** several tools (`pool: [codex, cursor]`): each task goes to whichever has the most room left, and **model tiers** (`models: { S: …, L: … }`) give small tasks a cheaper model.
 
 ```
 ██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗     (a huge gradient banner)
@@ -68,9 +68,12 @@ harness
 
 **Then you chat.** The home screen is like Claude Code's: a big banner, a card listing your agents (tool and model each), and the chat box. Detail is one `/` away:
 
-- **Type a message** and the planner splits it into mini prompts, one per agent, and starts them. You see the split in the feed.
+- **Type a message.** If it is clearly one agent's job (keywords, its role, the files you mention against its folders), that agent starts at once. Work that spans agents goes to the planner, which splits it into one parallel mini prompt per agent. You never have to name an agent.
 - **Tab** picks one agent: its live session shows and your messages go straight to it (a busy agent pauses at a safe point and reads it; an idle one starts a new task). Tab back to `team`.
 - **`/`** opens commands: `/agents` (who is doing what: tool, time, context, cost), `/usage` (limits per tool), `/panes` (every live session side by side), `/zoom`, `/review`, `/diff`, `/accept`, `/attach` (the agent's real interactive CLI), `/theme`, `/help`.
+- **`/board`** shows the team board (`.harness/HARNESS.md`): what you asked for, who is doing what, what each agent finished and changed, and the notes agents leave each other. Every agent prompt carries it.
+- **`/windows`** opens one real terminal window per agent (macOS), each running `harness watch <agent>`; anywhere else, run `harness watch backend-1` in your own terminals.
+- **`/land`** brings finished work from `harness/integration` into your branch (fast-forward, or a merge commit; conflicts are listed, never resolved).
 - **Ctrl-C** closes harness; the agents keep working. `/stop` stops them.
 
 Everything is also a plain command, for scripts:
@@ -107,6 +110,14 @@ DRAFT → QUEUED → RUNNING → GATING → REVIEWING → PR_READY → MERGED
 - **Policy.** Out-of-scope writes are reverted and fail the gate. Protected paths and new dependencies need approval. Subscription routes ask before dispatching while you're away (`harness routes unattended <route> allow|ask|deny`).
 - **Takeover.** `a` in the UI (or `harness attach frontend-1`) pauses the worker, commits a checkpoint, and opens the vendor's own interactive CLI on the same session.
 
+## How the team stays coordinated
+
+- **Routing.** A deterministic router (no model call) scores each writing role on keyword hints, its own instructions, and the files you mention against its `paths_allow`. A clear winner starts immediately; anything spanning roles goes to the planner. After planning, a task whose files lie outside its role's folders is moved to a role that may write them.
+- **Team board.** `.harness/HARNESS.md` is rebuilt from the event log on every change. Agents read it in their prompt and add to it with `NOTE:` lines in their final summary.
+- **Handoff.** A task that depends on others gets their summaries, changed files and notes. A session past `limits.fresh_session_after_tokens` is not resumed; the next run starts fresh from the board instead of a compacted context.
+- **Lead.** When a batch of work settles, the read-only `lead` role compares it with your request, reports a status line in the chat, and may set a few follow-ups (`limits.lead_followups`, `limits.lead_rounds`).
+- **Pools and tiers.** `pool: [codex, cursor]` on a role spreads its tasks across subscriptions by headroom (never two routes of one vendor). `models: { S, M, L }` on a route picks the model by task size; `limits.review_sizes` decides which sizes get a reviewer.
+
 ## Commands
 
 | Command | What it does |
@@ -123,6 +134,9 @@ DRAFT → QUEUED → RUNNING → GATING → REVIEWING → PR_READY → MERGED
 | `harness review <id> [--accept\|--reject -m]` | Evidence for a task, then merge or send back |
 | `harness limits set <route> --window 5h --budget 85%` | Caps below the vendor's, or manual budgets |
 | `harness pr [--task id]` / `export` | Draft PR with an evidence block / JSONL ledger |
+| `harness board` | The team board: asks, who does what, what is done, notes |
+| `harness watch <agent>` | Follow one agent's live session in this terminal |
+| `harness land` | Bring finished work from `harness/integration` into your branch |
 
 Global flags: `--project <path>`, `--json`, `--no-color`, `--debug`. Exit codes: 0 ok, 1 failed or blocked, 2 usage error, 3 daemon unreachable.
 
