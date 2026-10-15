@@ -145,9 +145,9 @@ export function App({ store, onExit, size, theme: themeName, onTheme, welcome, v
   /** Chat to the whole team: split across agents and start. */
   async function toTeam(text: string) {
     noteTeam("you", text);
-    noteTeam("sys", "the planner is splitting this across your agents…");
+    noteTeam("sys", "picking the right agents for this…");
     const r = await call<{ summary: string; tasks: { id: string; title: string; role: string; dependsOn: string[] }[] }>("dispatch", { document: text, source: "chat" });
-    store.local.set(viewKey, (store.local.get(viewKey) ?? []).filter((e) => !e.text.startsWith("the planner is splitting")));
+    store.local.set(viewKey, (store.local.get(viewKey) ?? []).filter((e) => !e.text.startsWith("picking the right agents")));
     if (!r) return;
     if (r.summary) noteTeam("say", r.summary);
     for (const x of r.tasks) noteTeam("sys", `→ ${x.role}: ${x.title}${x.dependsOn.length ? ` (after ${x.dependsOn.join(", ")})` : ""}`);
