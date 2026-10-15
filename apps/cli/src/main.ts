@@ -25,6 +25,7 @@ import * as run from "./commands/run.js";
 import * as status from "./commands/status.js";
 import * as stop from "./commands/stop.js";
 import * as task from "./commands/task.js";
+import * as tell from "./commands/tell.js";
 import * as usage from "./commands/usage.js";
 import * as watch from "./commands/watch.js";
 
@@ -45,7 +46,7 @@ export function buildProgram(io: Io): Command {
     .configureOutput({ writeOut: (s) => io.out(s.replace(/\n$/, "")), writeErr: (s) => io.err(s.replace(/\n$/, "")) })
     .showHelpAfterError();
   const ctx = makeCtx(io, program);
-  for (const m of [init, doctor, roles, routes, plan, task, approve, board, land, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config, watch]) m.register(program, ctx);
+  for (const m of [init, doctor, roles, routes, plan, task, approve, board, land, run, pause, stop, status, attach, logs, review, usage, limits, pr, exportCmd, config, watch, tell]) m.register(program, ctx);
   program
     .command("setup")
     .description("Run the setup wizard: pick agents, tools, models and write scopes (rewrites harness.yaml)")
