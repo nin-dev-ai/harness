@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { FakeClock, type UsageSnapshot } from "@harness/core";
+import { parseHarnessConfig } from "@harness/config";
+import { PolicyGuard, QuotaGuard } from "@harness/daemon";
+import { byMode, createScenario, startHarness, writes, type Harness, type Scenario } from "../helpers/scenario.js";
+
+/** M21: one role, several subscriptions; work goes where there is room. */
+const T0 = "2026-01-05T09:00:00.000Z";
+const CONFIG = `version: 1
+project: demo
+routes:
+  fast: { vendor: fake, auth: api_key }
+  slow: { vendor: fake, auth: api_key }
+  rev: { vendor: fake, auth: api_key }
+roles:
+  backend: { route: slow, pool: [fast], concurrency: 2, paths_allow: ["src/server/**"] }
+  reviewer: { route: rev, mode: readonly }
+limits:
+  max_parallel_workers: 4
+burst:
+  resume_jitter_seconds: [0, 0]
+  cold_cost_pct: { S: 6, M: 15, L: 25 }
+`;
+const usage = (route: string, usedPct: number): UsageSnapshot => ({ route, window: "5h", usedPct, resetsAt: "2026-01-05T12:00:00.000Z", source: "vendor", observedAt: T0 });
+
+describe("subscription pool", () => {
+  let s: Scenario;
+  let h: Harness;
+  afterEach(async () => {
+    await h?.stop();
+    s?.cleanup();
+  });
+  const start = async (slowPct: number, fastPct: number) => {
+    s = createScenario({ config: CONFIG });
+    s.adapterFactory("slow");
+    s.adapterFactory("fast");
+    h = await startHarness(s, { clock: new FakeClock(T0), guards: (p, _d, kick) => [new PolicyGuard(p, () => true), new QuotaGuard(p, { kick, rng: () => 0 })] });
+    s.adapters.get("slow")!.setUsage("slow", [usage("slow", slowPct)]);
+    s.adapters.get("fast")!.setUsage("fast", [usage("fast", fastPct)]);
+    // Windows are read from the store: refresh both before the first dispatch.
+    const q = new QuotaGuard(h.project, { kick: () => undefined });
+    await q.refresh("slow", true);
+    await q.refresh("fast", true);
+    q.dispose();
+  };
+  const routeOf = (id: string) => h.project.store.runs.listByTask(h.project.id, id).find((r) => r.kind === "initial")?.route;
+
+  it("sends work to the pool member with the most headroom, not just the primary route", async () => {
+    await start(70, 20);
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    const t = h.project.createTask({ title: "A", role: "backend", size: "S", state: "QUEUED" });
+    h.engine.start();
+    await h.until(t.id, "MERGED");
+    expect(routeOf(t.id)).toBe("fast");
+  });
+
+  it("when the primary is exhausted, work keeps flowing on the other subscription", async () => {
+    await start(97, 50);
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    s.scripts.set("T-002", byMode(writes({ "src/server/b.ts": "b\n" })));
+    const a = h.project.createTask({ title: "A", role: "backend", size: "S", state: "QUEUED" });
+    const b = h.project.createTask({ title: "B", role: "backend", size: "S", state: "QUEUED" });
+    h.engine.start();
+    await h.until(a.id, "MERGED");
+    await h.until(b.id, "MERGED");
+    expect([routeOf(a.id), routeOf(b.id)]).toEqual(["fast", "fast"]);
+  });
+
+  it("a pool may not hold two routes of one vendor", () => {
+    const bad = `version: 1
+project: demo
+routes:
+  c1: { vendor: claude, auth: subscription }
+  c2: { vendor: claude, auth: subscription }
+roles:
+  backend: { route: c1, pool: [c2] }
+`;
+    expect(() => parseHarnessConfig(bad)).toThrow(/more than one route of vendor claude/);
+  });
+});

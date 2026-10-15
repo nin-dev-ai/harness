@@ -85,6 +85,12 @@ function checkHarnessRules(c: HarnessConfig, doc: Document, lc: LineCounter, fil
     const seenVendors = new Set<string>();
     const primary = routes[role.route];
     if (primary) seenVendors.add(primary.vendor);
+    role.pool.forEach((pr, i) => {
+      const r = routes[pr];
+      if (!r) errors.push(at(["roles", name, "pool", i], `pool route "${pr}" is not defined in routes`));
+      else if (r.vendor !== "fake" && seenVendors.has(r.vendor)) errors.push(at(["roles", name, "pool", i], `role "${name}" lists more than one route of vendor ${r.vendor}; switching accounts of one vendor is not allowed`));
+      else seenVendors.add(r.vendor);
+    });
     role.fallback_routes.forEach((fr, i) => {
       const r = routes[fr];
       if (!r) errors.push(at(["roles", name, "fallback_routes", i], `fallback route "${fr}" is not defined in routes`));

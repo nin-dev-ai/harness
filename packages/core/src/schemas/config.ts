@@ -19,6 +19,8 @@ export type Route = z.infer<typeof RouteSchema>;
 export const RoleSchema = z
   .object({
     route: name,
+    /** More routes (other vendors) this role uses as equals: each task goes to the one with the most headroom. */
+    pool: z.array(name).default([]),
     mode: z.enum(["readonly", "write"]).default("write"),
     concurrency: z.number().int().min(1).max(16).default(1),
     paths_allow: z.array(z.string()).optional(),

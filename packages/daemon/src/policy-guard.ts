@@ -65,7 +65,7 @@ export class PolicyGuard implements Guard {
     }
 
     const role = cfg.roles[ctx.kind === "review" ? "reviewer" : task.role];
-    if (role && route !== role.route) {
+    if (role && route !== role.route && !role.pool.includes(route)) {
       if (role.fallback === "none") return { ok: false, reason: "policy", detail: "fallback disabled" };
       if (role.fallback === "ask") {
         const d = this.needs(task.id, "fallback", `fallback:${route}:${task.attempts}`, `run ${task.id} on fallback route ${route} instead of ${role.route}`);

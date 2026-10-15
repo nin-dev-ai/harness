@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskState } from "@harness/core";
-import { readTaskFile } from "@harness/config";
+import { capPct, readTaskFile } from "@harness/config";
 import {
   buildFreshResumePrompt,
   buildMessagePrompt,
@@ -33,6 +33,7 @@ import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
 import { TmuxMirror } from "./tmux.js";
+import { currentUsed } from "@harness/quota";
 import { BoardWriter, boardForPrompt, handoffFor } from "./board.js";
 
 interface LiveRun {
@@ -199,7 +200,7 @@ export class ProjectEngine {
       }
       const role = cfg.roles[item.role]!;
       // The role's route is law; fallback routes only with `fallback: auto` (or `ask` + approval, see PolicyGuard).
-      const candidates = [role.route, ...(role.fallback !== "none" ? role.fallback_routes : [])];
+      const candidates = [...this.poolOrder(item, [role.route, ...role.pool]), ...(role.fallback !== "none" ? role.fallback_routes : [])];
       let chosen: string | undefined;
       let firstBlock: { reason: NonNullable<Task["blockedReason"]>; detail?: string } | undefined;
       for (const route of candidates) {
@@ -233,6 +234,36 @@ export class ProjectEngine {
       this.lastReason.delete(item.task.id);
       await this.dispatch(item, worker.id, route);
     }
+  }
+
+  /**
+   * A role's pool (its route plus `pool` routes, all different vendors) in
+   * the order to try: the route already holding this task's session first
+   * (repairs keep their context), then the most headroom left, so work
+   * spreads across subscriptions instead of draining one.
+   */
+  private poolOrder(item: WorkItem, pool: string[]): string[] {
+    if (pool.length < 2) return pool;
+    const sticky = item.kind === "implement" ? this.implementerRuns(item.task.id).at(-1)?.route : undefined;
+    const now = this.p.clock.now();
+    const left = (route: string) => {
+      const ws = new Map(this.p.store.windows.list(this.p.id, route).map((w) => [w.kind, w]));
+      const room = (["5h", "7d"] as const).map((k) => {
+        const used = currentUsed(ws.get(k), now);
+        return used === null ? null : capPct(this.p.config, route, k) - used;
+      }).filter((x): x is number => x !== null);
+      // Unknown usage ranks in the middle: not preferred over known room, not starved either.
+      return room.length ? Math.min(...room) : 50;
+    };
+    const busy = (route: string) => [...this.live.values()].filter((l) => l.route === route).length;
+    const ranked = [...pool].sort((a, b) => left(b) - busy(b) * 10 - (left(a) - busy(a) * 10) || pool.indexOf(a) - pool.indexOf(b));
+    if (item.kind === "review") {
+      // An independent review: a different vendor from the one that wrote the code, when the pool has one.
+      const implRoute = this.implementerRuns(item.task.id).at(-1)?.route;
+      const implVendor = implRoute ? this.p.config.routes[implRoute]?.vendor : undefined;
+      return [...ranked.filter((r) => this.p.config.routes[r]?.vendor !== implVendor), ...ranked.filter((r) => this.p.config.routes[r]?.vendor === implVendor)];
+    }
+    return sticky && pool.includes(sticky) ? [sticky, ...ranked.filter((r) => r !== sticky)] : ranked;
   }
 
   private async checkGuards(item: WorkItem, route: string): Promise<GuardDecision> {
@@ -466,7 +497,7 @@ export class ProjectEngine {
     const wt = this.worktreeAbs(task);
     const base = this.p.config.integration_branch;
     const spec = this.taskSpec(task.id);
-    const implRoute = this.p.config.roles[task.role]!.route;
+    const implRoute = this.implementerRuns(task.id).at(-1)?.route ?? this.p.config.roles[task.role]!.route;
     const sameRoute = implRoute === route;
     this.p.emit("review.started", { route, sameRoute }, { taskId: task.id });
     const prompt = buildReviewPrompt({
