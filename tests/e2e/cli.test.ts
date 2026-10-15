@@ -63,6 +63,7 @@ describe("cli", () => {
     expect(fs.existsSync(path.join(repo.root, "harness.yaml"))).toBe(true);
     expect(fs.readFileSync(path.join(repo.root, ".harness/checks.yaml"), "utf8")).toContain("unit");
     expect(fs.readFileSync(path.join(repo.root, ".gitignore"), "utf8")).toContain(".harness/worktrees/");
+    expect(fs.readFileSync(path.join(repo.root, ".gitignore"), "utf8")).toContain(".harness/HARNESS.md");
     expect(fs.existsSync(path.join(repo.root, "AGENTS.md"))).toBe(true);
     expect(r.out).not.toMatch(/sk-ant|gho_|token/i);
     // Use the fake vendor for the rest of the suite.

@@ -2,7 +2,9 @@
 # Live team demo: real Claude Code (and Codex if signed in) on a throwaway repo.
 # SPENDS A LITTLE QUOTA: one or two small tasks plus one lead check.
 # Shows: routing without tags, parallel agents, the team board, the lead, and land.
-# Usage: pnpm build && bash scripts/live-team.sh
+# Usage: pnpm build && bash scripts/live-team.sh ["message to the team"]
+#   default: a one-agent server task. Try a cross-agent one to see the planner split it and agents run in parallel:
+#   bash scripts/live-team.sh "Add server/cart.js with cartTotal(items) in cents, and web/cart.js with renderCart(items) returning an HTML string that shows the total via formatPrice-style dollars; tests for both in test/"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,7 +60,8 @@ YAML
 git add -A && git commit -qm "sample shop"
 
 echo "== frontend runs on $FRONT_ROUTE"
-h tell "Add server/price.js exporting formatPrice(cents) that returns a string like \$12.50, with a node:test test in test/price.test.js"
+MESSAGE="${1:-Add server/price.js exporting formatPrice(cents) that returns a string like \$12.50, with a node:test test in test/price.test.js}"
+h tell "$MESSAGE"
 h run >/dev/null
 printf "== agents are working"
 for _ in $(seq 1 450); do
@@ -69,6 +72,8 @@ done
 echo
 sleep 20   # give the lead its turn
 h status --no-color | sed -n '/TASKS/,$p'
+echo "== timeline"
+h export --no-color 2>/dev/null | node -e 'const l=require("fs").readFileSync(0,"utf8").trim().split("\n").map(JSON.parse).filter(e=>e.kind==="event"&&["run.started","run.finished","branch.merged","lead.reported"].includes(e.type)); for (const e of l) console.log(e.ts.slice(11,19), e.type, e.taskId??"", e.workerId??"", e.payload?.route??"")' || true
 echo "== board"
 h board --no-color
 echo "== land"

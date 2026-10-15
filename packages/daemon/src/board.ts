@@ -124,6 +124,7 @@ export class BoardWriter {
   constructor(private p: ProjectRuntime) {}
 
   start(): void {
+    this.ignoreLocally();
     this.write();
     this.unsubscribe = this.p.store.subscribe((e) => {
       if (e.projectId === this.p.id && BOARD_EVENTS.has(e.type)) this.write();
@@ -132,6 +133,19 @@ export class BoardWriter {
 
   stop(): void {
     this.unsubscribe?.();
+  }
+
+  /** The board changes on every event: keep it out of `git status` without editing the project's .gitignore. */
+  private ignoreLocally(): void {
+    try {
+      const exclude = path.join(this.p.root, ".git", "info", "exclude");
+      if (!fs.existsSync(path.dirname(exclude))) return;
+      const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, "utf8") : "";
+      if (current.split("\n").some((l) => l.trim() === BOARD_FILE || l.trim() === `/${BOARD_FILE}`)) return;
+      fs.appendFileSync(exclude, `${current && !current.endsWith("\n") ? "\n" : ""}${BOARD_FILE}\n`);
+    } catch {
+      // best effort
+    }
   }
 
   write(): void {

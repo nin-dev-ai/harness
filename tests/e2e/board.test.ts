@@ -56,6 +56,7 @@ describe("team board (HARNESS.md)", () => {
     const file = fs.readFileSync(path.join(s.repo.root, ".harness/HARNESS.md"), "utf8");
     expect(file).toContain("**T-002** Watchlist");
     expect(file).toContain("## Working now\n- nobody");
+    expect(s.repo.git("status", "--porcelain")).not.toContain("HARNESS.md");
   });
 
   it("a session past the context budget is left behind: the repair starts fresh from the board", async () => {

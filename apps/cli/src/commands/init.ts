@@ -91,7 +91,7 @@ export async function initProject(ctx: Ctx, o: { baseline: boolean; writeAgentsM
   fs.mkdirSync(path.join(root, TASKS_DIR), { recursive: true });
   const gi = path.join(root, ".gitignore");
   const current = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
-  const need = [".harness/worktrees/", ".harness/runs/"].filter((l) => !current.split("\n").includes(l));
+  const need = [".harness/worktrees/", ".harness/runs/", ".harness/HARNESS.md"].filter((l) => !current.split("\n").includes(l));
   if (need.length) fs.writeFileSync(gi, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${need.join("\n")}\n`);
 
   const checks = loadChecksConfig(root).config;
