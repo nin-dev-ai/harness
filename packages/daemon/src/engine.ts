@@ -306,6 +306,7 @@ export class EnginePlugin implements DaemonPlugin {
           created = r.tasks;
           summary = r.summary;
         }
+        p.emit("team.request", { text: a.document, taskIds: created.map((t) => t.id) });
         this.approve(p, created.map((t) => t.id));
         if (e.running) e.kick();
         else e.start({});

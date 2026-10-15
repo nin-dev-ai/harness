@@ -22,6 +22,8 @@ export const EVENT_PAYLOADS = {
   "plan.drafted": z.object({ taskIds: z.array(s) }),
   "plan.invalid": z.object({ errors: z.array(s), attempt: z.number() }),
   "task.routed": z.object({ role: s, reason: s }),
+  "team.request": z.object({ text: s, taskIds: z.array(s).default([]) }),
+  "lead.reported": z.object({ status: s, followups: z.array(s).default([]) }),
   "plan.reassigned": z.object({ key: s, from: s, to: s, files: z.array(s) }),
   "task.approved": z.object({ by: s.default("user") }),
   // Tasks
@@ -71,7 +73,7 @@ export const EVENT_PAYLOADS = {
   // Git
   "worktree.created": z.object({ path: s, branch: s, base: s }),
   "worktree.removed": z.object({ path: s }),
-  "branch.merged": z.object({ branch: s, into: s, commit: s }),
+  "branch.merged": z.object({ branch: s, into: s, commit: s, files: z.array(s).optional() }),
   "merge.conflict": z.object({ branch: s, files: z.array(s) }),
   "pr.opened": z.object({ url: s, branch: s }),
   // Quota

@@ -12,6 +12,8 @@ export interface TaskPromptInput {
   pathsAllow: string[];
   pathsDeny: string[];
   checks: { id: string; argv: string[]; required: boolean }[];
+  /** The team board (HARNESS.md): what everyone else is doing and has done. */
+  board?: string;
 }
 
 const checkList = (checks: TaskPromptInput["checks"]) =>
@@ -31,6 +33,7 @@ export function buildTaskPrompt(i: TaskPromptInput): string {
     pathsAllow: i.pathsAllow.length ? i.pathsAllow.map((p) => `\`${p}\``).join(", ") : "anywhere in the repository",
     pathsDeny: i.pathsDeny.length ? i.pathsDeny.map((p) => `\`${p}\``).join(", ") : "(nothing extra)",
     checks: checkList(i.checks),
+    board: i.board?.trim() ? i.board.trim() : "(no board yet)",
   });
 }
 

@@ -33,6 +33,7 @@ import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
 import { TmuxMirror } from "./tmux.js";
+import { BoardWriter, boardForPrompt } from "./board.js";
 
 interface LiveRun {
   runId: string;
@@ -73,6 +74,7 @@ export class ProjectEngine {
   /** Promises of in-flight work (runs and their follow-ups), for tests and shutdown. */
   private inflight = new Set<Promise<unknown>>();
   private tmux: TmuxMirror;
+  private board: BoardWriter;
 
   constructor(
     readonly p: ProjectRuntime,
@@ -86,6 +88,8 @@ export class ProjectEngine {
       this.until = last.payload.until ?? null;
     }
     this.tmux = new TmuxMirror(p);
+    this.board = new BoardWriter(p);
+    this.board.start();
     this.armTimer();
   }
 
@@ -109,6 +113,7 @@ export class ProjectEngine {
   shutdown(): void {
     this.stopped = true;
     this.cancelTimer?.();
+    this.board.stop();
   }
 
   private armTimer(): void {
@@ -326,6 +331,7 @@ export class ProjectEngine {
       pathsAllow: role.paths_allow ?? [],
       pathsDeny: role.paths_deny,
       checks: this.p.checks.checks.map((c) => ({ id: c.id, argv: c.argv, required: c.required })),
+      board: boardForPrompt(this.p),
     });
   }
 
@@ -730,7 +736,8 @@ export class ProjectEngine {
       },
     });
     if (r.status === "merged") {
-      this.p.emit("branch.merged", { branch, into: cfg.integration_branch, commit: r.commit }, { taskId });
+      const files = (await git(this.p.root, ["diff", "--name-only", `${r.commit}~1`, r.commit]).catch(() => "")).split("\n").filter(Boolean);
+      this.p.emit("branch.merged", { branch, into: cfg.integration_branch, commit: r.commit, files }, { taskId });
       this.p.transition(taskId, "MERGED");
       await this.markStale(taskId, r.commit);
       await removeWorktree(this.p.root, taskId);
