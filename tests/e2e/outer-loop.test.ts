@@ -143,18 +143,44 @@ describe("outer loop", () => {
     expect(s.repo.git("log", "--format=%s", "main..harness/integration").split("\n")).toEqual(["T-002: Consumer", "T-001: Contract"]);
   });
 
-  it("merge-conflict: a conflict lands in NEEDS_HUMAN with the files listed and nothing resolved", async () => {
+  it("merge-conflict: the task's agent resolves it once, on the latest integration branch, then it merges", async () => {
     s.scripts.set("T-001", byMode(writes({ "src/shared/a.ts": "export const a = 'backend';\n" })));
-    s.scripts.set("T-002", byMode({ steps: [{ kind: "message", text: "slow", delayMs: 400 }, ...writes({ "src/shared/a.ts": "export const a = 'frontend';\n" }).steps] }));
+    s.scripts.set("T-002", byMode({
+      sessionId: "fe",
+      steps: [{ kind: "message", text: "slow", delayMs: 400 }, ...writes({ "src/shared/a.ts": "export const a = 'frontend';\n" }).steps],
+      resumeSteps: writes({ "src/shared/a.ts": "export const a = 'backend+frontend';\n" }).steps,
+    }));
+    h = await startHarness(s);
+    const a = h.project.createTask({ title: "A", role: "backend", state: "QUEUED" });
+    const b = h.project.createTask({ title: "B", role: "frontend", state: "QUEUED" });
+    h.engine.start();
+    await h.until(a.id, "MERGED");
+    await h.until(b.id, "MERGED");
+    const c = h.project.store.events.list({ projectId: h.project.id, taskId: b.id, types: ["merge.conflict"] })[0];
+    expect(c?.type === "merge.conflict" && c.payload.files).toEqual(["src/shared/a.ts"]);
+    const repair = s.adapters.get("fast")!.requests.at(-1)!;
+    expect(repair.resumeSessionId).toBe("fe");
+    expect(repair.prompt).toContain("could not merge");
+    expect(repair.prompt).toContain("`src/shared/a.ts`");
+    expect(s.repo.git("show", "harness/integration:src/shared/a.ts")).toBe("export const a = 'backend+frontend';");
+  });
+
+  it("merge-conflict: markers left behind fail the gate; nothing broken merges and it ends with a person", async () => {
+    s.scripts.set("T-001", byMode(writes({ "src/shared/a.ts": "export const a = 'backend';\n" })));
+    s.scripts.set("T-002", byMode({
+      sessionId: "fe",
+      steps: [{ kind: "message", text: "slow", delayMs: 400 }, ...writes({ "src/shared/a.ts": "export const a = 'frontend';\n" }).steps],
+      resumeSteps: [{ kind: "result", ok: true, summary: "resolved (not really)" }],
+    }));
     h = await startHarness(s);
     const a = h.project.createTask({ title: "A", role: "backend", state: "QUEUED" });
     const b = h.project.createTask({ title: "B", role: "frontend", state: "QUEUED" });
     h.engine.start();
     await h.until(a.id, "MERGED");
     await h.until(b.id, "NEEDS_HUMAN");
-    const c = h.project.store.events.list({ projectId: h.project.id, taskId: b.id, types: ["merge.conflict"] })[0];
-    expect(c?.type === "merge.conflict" && c.payload.files).toEqual(["src/shared/a.ts"]);
-    expect(s.repo.git("show", "harness/integration:src/shared/a.ts")).toContain("backend");
+    const failed = h.project.store.events.list({ projectId: h.project.id, taskId: b.id, types: ["check.finished"] }).find((e) => e.type === "check.finished" && e.payload.checkId === "conflict-markers");
+    expect(failed?.type === "check.finished" && failed.payload.ok).toBe(false);
+    expect(s.repo.git("show", "harness/integration:src/shared/a.ts")).toBe("export const a = 'backend';");
   });
 
   it("assisted autonomy waits for review --accept; reject sends work back with the comment", async () => {

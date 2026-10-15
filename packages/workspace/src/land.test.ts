@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTempRepo, type TempRepo } from "../../../tests/helpers/temp-repo.js";
 import { ensureIntegrationBranch } from "./branch.js";
 import { landIntegration, rebuildOrphanedIntegration, unlandedCount } from "./land.js";
+import { filesWithConflictMarkers, replayOnIntegration } from "./merge.js";
+import { createWorktree } from "./worktree.js";
 
 const INT = "harness/integration";
 
@@ -66,4 +68,27 @@ describe("land", () => {
     expect(repo.git("rev-parse", INT)).toBe(repo.git("rev-parse", "main"));
     expect(await rebuildOrphanedIntegration(repo.root, INT, "main", "x")).toBeUndefined();
   });
+
+  it("replays a task onto the latest integration branch, leaving markers only where both changed the same lines", async () => {
+    repo.git("checkout", "-q", INT);
+    repo.write("a.ts", "one\n");
+    repo.write("b.ts", "base\n");
+    repo.commit("base files");
+    repo.git("checkout", "-q", "main");
+    const { path: wt } = await createWorktree(repo.root, "T-001", "harness/x/T-001", INT);
+    const fs = await import("node:fs");
+    fs.writeFileSync(`${wt}/a.ts`, "mine\n");
+    fs.writeFileSync(`${wt}/c.ts`, "new file\n");
+    onIntegration("a.ts", "theirs\n");
+    const prev = await (await import("./git.js")).git(wt, ["rev-parse", "HEAD"]);
+    const r = await replayOnIntegration(wt, INT);
+    expect(r.status).toBe("conflicts");
+    if (r.status !== "conflicts") return;
+    expect(r.files).toEqual(["a.ts"]);
+    expect(r.previousHead).not.toBe(prev);
+    expect(fs.readFileSync(`${wt}/c.ts`, "utf8")).toBe("new file\n");
+    expect(await filesWithConflictMarkers(wt, ["a.ts", "c.ts"])).toEqual(["a.ts"]);
+    expect(fs.existsSync(`${wt}/.git`) && !fs.existsSync(`${repo.root}/.git/worktrees/T-001/MERGE_HEAD`)).toBe(true);
+  });
 });
+

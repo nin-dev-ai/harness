@@ -3,6 +3,7 @@ import path from "node:path";
 import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskState } from "@harness/core";
 import { capPct, readTaskFile } from "@harness/config";
 import {
+  buildConflictPrompt,
   buildFreshResumePrompt,
   buildMessagePrompt,
   buildRepairPrompt,
@@ -23,7 +24,9 @@ import {
   diffText,
   ensureIntegrationBranch,
   git,
+  filesWithConflictMarkers,
   mergeTask,
+  replayOnIntegration,
   removeWorktree,
   workingTreeHash,
 } from "@harness/workspace";
@@ -470,6 +473,10 @@ export class ProjectEngine {
       const findings = reviewRun ? this.p.store.runs.findings(reviewRun.id) : [];
       return buildReviewRepairPrompt({ taskId: task.id, attempt, attemptsMax: task.attemptsMax, findings });
     }
+    if (cause === "conflict") {
+      const files = req?.type === "repair.requested" ? (req.payload.files ?? []) : [];
+      return buildConflictPrompt({ taskId: task.id, files, attempt, attemptsMax: task.attemptsMax });
+    }
     if (cause === "human") {
       const ev = this.p.store.events.list({ projectId: this.p.id, taskId: task.id, types: ["approval.denied"] }).at(-1);
       const comment = ev?.type === "approval.denied" ? ev.payload.comment : undefined;
@@ -644,6 +651,14 @@ export class ProjectEngine {
       files = await changedFiles(wt, base);
     }
 
+    {
+      // Conflict markers never belong in a change (a conflict repair is only done when none is left).
+      const left = await filesWithConflictMarkers(wt, files);
+      if (left.length) {
+        const tail = `conflict markers are still in: ${left.join(", ")}`;
+        pre.push({ checkId: "conflict-markers", required: true, ok: false, exitCode: 1, durationMs: 0, timedOut: false, startError: null, outputTail: tail, signature: `conflict-markers:${left.sort().join(",")}` });
+      }
+    }
     const results: CheckResult[] = [...pre];
     for (const r of pre) this.p.emit("check.finished", { checkId: r.checkId, ok: r.ok, exitCode: r.exitCode, durationMs: r.durationMs, signature: r.signature, outputTail: r.outputTail, required: r.required }, env);
     results.push(
@@ -691,9 +706,9 @@ export class ProjectEngine {
     return e?.type === "repair.requested" ? e.payload.cause : undefined;
   }
 
-  private requestRepair(task: Task, cause: "gate" | "review" | "human"): void {
+  private requestRepair(task: Task, cause: "gate" | "review" | "human" | "conflict", files?: string[]): void {
     const attempt = task.attempts + 1;
-    this.p.emit("repair.requested", { attempt, cause }, { taskId: task.id });
+    this.p.emit("repair.requested", { attempt, cause, ...(files ? { files } : {}) }, { taskId: task.id });
     this.p.emit("task.updated", { fields: { attempts: attempt } }, { taskId: task.id });
     this.p.transition(task.id, "REPAIRING", `repair (${cause})`);
   }
@@ -809,12 +824,34 @@ export class ProjectEngine {
       this.kick();
     } else if (r.status === "conflict") {
       this.p.emit("merge.conflict", { branch, files: r.files }, { taskId });
-      this.needsHuman(taskId, "merge conflict", { files: r.files });
+      await this.resolveConflict(taskId, r.files);
     } else if (r.status === "checks_failed") {
       this.needsHuman(taskId, "required checks failed after rebase onto the integration branch", { detail: r.detail });
     } else {
       this.needsHuman(taskId, "the task branch has no changes to merge", {});
     }
+  }
+
+  /**
+   * A merge conflict goes back to the task's own agent once: harness replays
+   * the task onto the current integration branch, leaving conflict markers,
+   * and asks the agent to resolve them; checks and review then run again.
+   * A second conflict, no attempts left, or a replay that fails goes to the person.
+   */
+  private async resolveConflict(taskId: string, files: string[]): Promise<void> {
+    const task = this.p.task(taskId);
+    const tried = this.p.store.events.list({ projectId: this.p.id, taskId, types: ["repair.requested"] }).some((e) => e.type === "repair.requested" && e.payload.cause === "conflict");
+    if (tried || task.attempts >= task.attemptsMax) return this.needsHuman(taskId, "merge conflict", { files });
+    const wt = this.worktreeAbs(task);
+    const replay = await replayOnIntegration(wt, this.p.config.integration_branch).catch((e: Error) => ({ status: "failed" as const, detail: e.message }));
+    if (replay.status === "failed") return this.needsHuman(taskId, "merge conflict", { files, detail: replay.detail });
+    if (replay.status === "clean") {
+      // The change applies cleanly on the new integration head: verify and merge it (once).
+      this.p.emit("repair.requested", { attempt: task.attempts, cause: "conflict", files: [] }, { taskId });
+      return this.doMerge(taskId);
+    }
+    this.requestRepair(task, "conflict", replay.files);
+    this.kick();
   }
 
   /**

@@ -106,3 +106,8 @@ export function buildReviewPrompt(i: { taskId: string; title: string; acceptance
     diff: i.diff.trim() || "(empty diff)",
   });
 }
+
+/** Prompt after harness replayed a task onto the integration branch and left conflict markers. */
+export function buildConflictPrompt(i: { taskId: string; files: string[]; attempt: number; attemptsMax: number }): string {
+  return render("conflict", { taskId: i.taskId, files: bullet(i.files.map((f) => `\`${f}\``)), attempt: i.attempt, attemptsMax: i.attemptsMax });
+}

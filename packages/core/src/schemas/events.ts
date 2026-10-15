@@ -64,7 +64,7 @@ export const EVENT_PAYLOADS = {
   "check.finished": z.object({ checkId: s, ok: z.boolean(), exitCode: z.number().nullable(), durationMs: z.number(), signature: opt(s.nullable()), outputTail: opt(s), required: opt(z.boolean()) }),
   "gate.passed": z.object({ checks: z.array(s) }),
   "gate.failed": z.object({ failed: z.array(s), signatures: z.array(s), treeHash: opt(s) }),
-  "repair.requested": z.object({ attempt: z.number(), cause: z.enum(["gate", "review", "human"]) }),
+  "repair.requested": z.object({ attempt: z.number(), cause: z.enum(["gate", "review", "human", "conflict"]), files: z.array(s).optional() }),
   "stall.detected": z.object({ reason: z.enum(["same_signature", "unchanged_diff", "max_attempts"]), detail: opt(s) }),
   // Review
   "review.started": z.object({ route: s, sameRoute: z.boolean() }),
