@@ -28,5 +28,5 @@ Goal: one harness that pools Claude, Codex and Cursor subscriptions. You type wh
 - [x] **M19 Context handoff** — dependent tasks get their dependencies' summaries and changed files; sessions over a context budget restart fresh from the board + handoff instead of resuming into a compacted context.
 - [x] **M20 Lead (compiler) agent** — a read-only `lead` role that, when a batch of chat work settles, reads the board and returns a status line and at most a few small follow-up jobs (validated, capped, auto-approved, bounded depth).
 - [x] **M21 Subscription pooling** — a role may list more routes (`pool: [codex, cursor]`); each task goes to the route with the most headroom, so work flows across subscriptions instead of stopping at one limit.
-- [ ] **M22 Model tiers** — a route may map task sizes to models (`models: {S: haiku, M: sonnet, L: opus}`); the planner's size picks the model.
+- [x] **M22 Model tiers** — a route may map task sizes to models (`models: {S: haiku, M: sonnet, L: opus}`); the planner's size picks the model.
 - [ ] **M23 Land** — `/land` brings finished integration work into your branch; an integration branch with no shared history with the base is rebuilt from it.

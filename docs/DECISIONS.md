@@ -127,3 +127,6 @@ The "compiler" agent the user asked for is a read-only `lead` role. It is not in
 
 ## 2026-10-15 · M21 Subscription pooling
 The point of harness is to stretch several modest subscriptions (Claude, Codex, Cursor) further than one big one. A role now takes `pool: [...]`: routes it treats as equals with its `route`. The scheduler orders the pool by remaining headroom (min of cap minus used over the 5h and 7d windows; unknown usage ranks at 50 so it is neither preferred nor starved; each live run on a route costs it 10 points), keeps repairs on the route holding the session, and sends reviews to a different vendor from the implementer when it can. Pool members are not fallbacks (no approval), but the existing rule stands: one role never lists two routes of the same vendor, so harness never rotates accounts of one service. The wizard offers "all tools" per agent.
+
+## 2026-10-15 · M22 Model tiers
+"Choose the right model" is per task size: a route may set `models: {S, M, L}`, and implementer runs use the tier for the task's size (reviews and missing sizes use `model`). Sizes come from the planner, or for chat work routed without planning, from request length (≤40 words S, ≤250 M, else L). Following AGENTS.md rule 3, no vendor model ids are built in; the user types them in setup (`S=…, M=…, L=…`) or harness.yaml.

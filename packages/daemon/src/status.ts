@@ -96,7 +96,9 @@ export function snapshot(p: ProjectRuntime, engine: ProjectEngine): StatusSnapsh
         source: "manual", observedAt: now.toISOString(), stale: false, capPct: 100,
       });
     }
-    return { route: name, vendor: r.vendor, auth: r.auth, model: r.model ?? null, pausedUntil: rs.pausedUntil, pauseSource: rs.pauseSource, windows };
+    // Tiered routes show their tiers, e.g. "S haiku · L opus".
+    const tiers = r.models ? Object.entries(r.models).map(([k, v]) => `${k} ${v}`).join(" · ") : "";
+    return { route: name, vendor: r.vendor, auth: r.auth, model: tiers || (r.model ?? null), pausedUntil: rs.pausedUntil, pauseSource: rs.pauseSource, windows };
   });
   const needsHuman = new Map<string, string>();
   for (const e of p.store.events.list({ projectId: p.id, types: ["task.needs_human"] })) if (e.type === "task.needs_human" && e.taskId) needsHuman.set(e.taskId, e.payload.reason);
