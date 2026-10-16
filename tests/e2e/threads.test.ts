@@ -20,7 +20,13 @@ describe("durable chat turns", () => {
     await h.until("T-002", "MERGED");
     await h.engine.idle();
     expect(second.threadId).toBe(first.threadId);
-    expect(s.adapters.get("slow")!.requests.find((r) => r.runId === "R-T-002-1")?.resumeSessionId).toBe("native-1");
+    const r1 = s.adapters.get("slow")!.requests.find((r) => r.runId === "R-T-001-1")!;
+    const r2 = s.adapters.get("slow")!.requests.find((r) => r.runId === "R-T-002-1")!;
+    expect(r2.resumeSessionId).toBe("native-1");
+    // Same folder path for both turns, so a vendor that keys sessions by directory (Claude Code) finds the session.
+    expect(r2.cwd).toBe(r1.cwd);
+    expect(r1.cwd).toContain(".harness/worktrees/thread-");
+    expect(s.repo.git("ls-tree", "-r", "--name-only", "main")).toContain("src/server/one.ts");
     expect(h.project.store.events.list({ projectId: h.project.id, taskId: "T-002", types: ["thread.continuity"] }).at(-1)?.payload).toMatchObject({ carrier: "native_resume", route: "slow" });
     expect((await h.daemon.handlers()["thread.status"]!({ projectId: h.project.id }, ctx) as { state: string }[])[0]?.state).toBe("DELIVERED");
   });

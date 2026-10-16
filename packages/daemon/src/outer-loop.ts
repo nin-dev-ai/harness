@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskSize, type TaskState } from "@harness/core";
+import { taskBranch, threadWorktreePath, worktreePath, type HarnessEvent, type RunKind, type Task, type TaskSize, type TaskState } from "@harness/core";
 import { capPct, readTaskFile } from "@harness/config";
 import {
   buildFreshResumePrompt,
@@ -371,6 +371,21 @@ export class ProjectEngine {
     return path.join(this.p.root, task.worktree ?? `.harness/worktrees/${task.id}`);
   }
 
+  /**
+   * Where a new task works: a conversation's primary turns share one path
+   * (one turn at a time, recreated fresh) so a vendor that keys sessions by
+   * directory can resume; anything else, or a path still in use, gets its own.
+   */
+  private async worktreeFor(task: Task): Promise<string> {
+    const thread = threadForTask(this.p, task.id);
+    if (!thread || isDelegatedChild(this.p, task.id)) return worktreePath(task.id);
+    const rel = threadWorktreePath(thread.threadId);
+    const holder = this.p.tasks().find((t) => t.id !== task.id && t.worktree === rel && !["MERGED", "CANCELLED"].includes(t.state));
+    if (holder) return worktreePath(task.id);
+    if (fs.existsSync(path.join(this.p.root, rel))) await removeWorktree(this.p.root, task.id, rel).catch(() => undefined);
+    return rel;
+  }
+
   /** Create the task's branch and worktree from the integration branch, and run setup once. */
   private async ensureWorkspace(task: Task): Promise<{ ok: true; path: string } | { ok: false; detail: string }> {
     const cfg = this.p.config;
@@ -394,7 +409,7 @@ export class ProjectEngine {
       if (sync === "synced") this.p.emit("integration.synced", { base: cfg.base_branch, commit: await git(this.p.root, ["rev-parse", cfg.integration_branch]) });
     }
     const branch = task.branch ?? taskBranch(task.role, task.id, task.title);
-    const wt = await createWorktree(this.p.root, task.id, branch, cfg.integration_branch);
+    const wt = await createWorktree(this.p.root, task.id, branch, cfg.integration_branch, task.worktree ?? (await this.worktreeFor(task)));
     if (wt.created) {
       const rel = path.relative(this.p.root, wt.path);
       this.p.emit("task.updated", { fields: { branch, worktree: rel } }, { taskId: task.id });
@@ -904,7 +919,7 @@ export class ProjectEngine {
       this.p.transition(taskId, "MERGED");
       if (cfg.land === "auto") await reconcileDelivery(this.p);
       await this.markStale(taskId, r.commit);
-      await removeWorktree(this.p.root, taskId);
+      await removeWorktree(this.p.root, taskId, task.worktree ?? undefined);
       this.p.emit("worktree.removed", { path: task.worktree ?? "" }, { taskId });
       this.kick();
     } else if (r.status === "conflict") {
@@ -999,7 +1014,7 @@ export class ProjectEngine {
     const l = this.live.get(taskId);
     this.p.transition(taskId, "CANCELLED", "user");
     if (l) await this.supervisor.stop(l.runId, "cancel");
-    await removeWorktree(this.p.root, taskId).catch(() => undefined);
+    await removeWorktree(this.p.root, taskId, this.p.task(taskId).worktree ?? undefined).catch(() => undefined);
   }
 
   /** `harness review --reject -m`: send the work back with a comment. */

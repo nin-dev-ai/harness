@@ -52,4 +52,13 @@ export function worktreePath(taskId: string): string {
   return `.harness/worktrees/${taskId}`;
 }
 
+/**
+ * One folder path per conversation: its turns run one after another in the
+ * same path (recreated fresh for each turn), so a vendor that keys sessions
+ * by working directory (Claude Code) can resume the conversation.
+ */
+export function threadWorktreePath(threadId: string): string {
+  return `.harness/worktrees/thread-${threadId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+}
+
 export const HARNESS_BRANCH_PREFIX = "harness/";

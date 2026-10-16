@@ -33,9 +33,8 @@ export async function worktreeForBranch(root: string, branch: string): Promise<W
  * Create .harness/worktrees/<task> on a new branch from `from`.
  * Idempotent: an existing worktree for the same branch is reused (recovery after a restart).
  */
-export async function createWorktree(root: string, taskId: string, branch: string, from: string): Promise<{ path: string; created: boolean }> {
+export async function createWorktree(root: string, taskId: string, branch: string, from: string, rel = worktreePath(taskId)): Promise<{ path: string; created: boolean }> {
   assertHarnessBranch(branch);
-  const rel = worktreePath(taskId);
   const abs = path.join(root, rel);
   const existing = (await listWorktrees(root)).find((w) => fs.existsSync(w.path) && fs.realpathSync(w.path) === (fs.existsSync(abs) ? fs.realpathSync(abs) : abs));
   if (existing) {
@@ -49,9 +48,9 @@ export async function createWorktree(root: string, taskId: string, branch: strin
   return { path: abs, created: true };
 }
 
-/** Remove a task worktree. The branch is kept. */
-export async function removeWorktree(root: string, taskId: string): Promise<void> {
-  const abs = path.join(root, worktreePath(taskId));
+/** Remove a task worktree (by default its per-task path). The branch is kept. */
+export async function removeWorktree(root: string, taskId: string, rel = worktreePath(taskId)): Promise<void> {
+  const abs = path.join(root, rel);
   if (fs.existsSync(abs)) await gitRaw(root, ["worktree", "remove", "--force", abs]);
   await gitRaw(root, ["worktree", "prune"]);
 }
