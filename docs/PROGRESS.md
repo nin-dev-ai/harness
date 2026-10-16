@@ -64,3 +64,8 @@ An automatic best-of race was deferred because it spends multiple subscriptions 
 
 - [x] **T-006 Daemon prompt organization** — moved task, repair, and review prompt assembly from the outer-loop engine into `packages/daemon/src/task-prompts.ts`. The engine retains scheduling and state transitions; the new module owns prompt inputs, including the board, check results, and review diff. Typecheck, lint, build, and the fake-adapter suite pass (486 passed, 2 skipped).
 
+## Phase 3 fixes from live use (2026-10-16)
+- [x] **Follow-ups resume Claude** — a conversation's turns share one folder path (`.harness/worktrees/thread-<id>`), because Claude Code keys sessions by directory; per-task folders made every same-route resume fail.
+- [x] **Waiting is never silent, and pacing never blocks a waiting person** — weekly pacing applies only to unattended work; a task that cannot start is announced in the chat and by `harness tell`.
+- [x] **Live check** (real Claude, `land: auto`): turn 1 built `greet`, landed on main; turn 2 ("now trim and default to world") resumed the same Claude session in the same folder, passed checks and landed on main, with no command from the person.
+
