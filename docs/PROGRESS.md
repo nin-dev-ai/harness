@@ -60,3 +60,7 @@ Historical tasks T-001–T-003 were also found on the preserved orphaned integra
 
 An automatic best-of race was deferred because it spends multiple subscriptions before an objective check finds a need to escalate; see `docs/DECISIONS.md`.
 
+## Code structure maintenance
+
+- [x] **T-006 Daemon prompt organization** — moved task, repair, and review prompt assembly from the outer-loop engine into `packages/daemon/src/task-prompts.ts`. The engine retains scheduling and state transitions; the new module owns prompt inputs, including the board, check results, and review diff. Typecheck, lint, build, and the fake-adapter suite pass (486 passed, 2 skipped).
+

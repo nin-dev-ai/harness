@@ -3,14 +3,9 @@ import path from "node:path";
 import { taskBranch, type HarnessEvent, type RunKind, type Task, type TaskSize, type TaskState } from "@harness/core";
 import { capPct, readTaskFile } from "@harness/config";
 import {
-  buildConflictPrompt,
   buildFreshResumePrompt,
   buildMessagePrompt,
-  buildRepairPrompt,
   buildResumePrompt,
-  buildReviewPrompt,
-  buildReviewRepairPrompt,
-  buildTaskPrompt,
   parseReview,
   REVIEW_JSON_SCHEMA,
 } from "@harness/planner";
@@ -21,7 +16,6 @@ import {
   commitAll,
   createWorktree,
   diffSummary,
-  diffText,
   ensureIntegrationBranch,
   git,
   isAncestor,
@@ -33,18 +27,18 @@ import {
   removeWorktree,
   workingTreeHash,
 } from "@harness/workspace";
-import { isSecretPath } from "@harness/policy";
 import type { Guard, GuardDecision } from "./guards.js";
 import type { ProjectRuntime } from "./project.js";
 import { freeWorker, selectWork, waitingOnDeps, filesOverlap, type WorkItem } from "./scheduler.js";
 import type { RunOutcome, Supervisor } from "./supervisor.js";
 import { TmuxMirror } from "./tmux.js";
 import { currentUsed } from "@harness/quota";
-import { BoardWriter, boardForPrompt, handoffFor } from "./board.js";
+import { BoardWriter } from "./board.js";
 import { reconcileDelivery, taskDelivery } from "./delivery.js";
 import { previousTurn, priorRoute, threadForTask, threadHandoff } from "./threads.js";
 import { childHandoff, delegationWaves, isDelegatedChild, parseDelegation, type DelegatedJob } from "./delegation.js";
 import { pickRole } from "./planning.js";
+import { repairPrompt, reviewPrompt, taskPrompt } from "./task-prompts.js";
 
 interface LiveRun {
   runId: string;
@@ -415,26 +409,6 @@ export class ProjectEngine {
     return this.p.store.runs.listByTask(this.p.id, taskId).filter((r) => r.kind !== "review" && r.kind !== "plan");
   }
 
-  private taskPrompt(task: Task): string {
-    const spec = this.taskSpec(task.id);
-    const role = this.p.config.roles[task.role]!;
-    return buildTaskPrompt({
-      role: task.role,
-      instructions: role.instructions,
-      taskId: task.id,
-      title: task.title,
-      body: spec?.body ?? "",
-      acceptance: spec?.front.acceptance ?? [],
-      agentsMd: fs.existsSync(path.join(this.p.root, "AGENTS.md")),
-      ...(spec?.front.contract_ref ? { contractRef: spec.front.contract_ref } : {}),
-      pathsAllow: role.paths_allow ?? [],
-      pathsDeny: role.paths_deny,
-      checks: this.p.checks.checks.map((c) => ({ id: c.id, argv: c.argv, required: c.required })),
-      board: boardForPrompt(this.p),
-      handoff: handoffFor(this.p, task),
-    });
-  }
-
   private async dispatch(item: WorkItem, workerId: string, route: string): Promise<void> {
     const task = this.p.task(item.task.id);
     if (item.kind === "review") return this.dispatchReview(task, workerId, route);
@@ -466,9 +440,9 @@ export class ProjectEngine {
     const notes = this.pendingMessages(task.id);
     if (item.kind === "repair") {
       kind = "repair";
-      prompt = await this.repairPrompt(task, ws.path);
+      prompt = await repairPrompt(this.p, task, ws.path);
       resumeSessionId = this.lastSession(task.id, route);
-      if (!resumeSessionId) prompt = `${this.taskPrompt(task)}\n${prompt}`;
+      if (!resumeSessionId) prompt = `${taskPrompt(this.p, task)}\n${prompt}`;
       if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
     } else if (last) {
       // Continue earlier work: same session if we can, else a fresh one with the checkpoint summary.
@@ -479,14 +453,14 @@ export class ProjectEngine {
         resumeSessionId = session;
         prompt = notes.length ? buildMessagePrompt(task.id, notes) : buildResumePrompt(task.id);
       } else {
-        prompt = buildFreshResumePrompt(this.taskPrompt(task), (await diffSummary(ws.path, this.p.config.integration_branch)).stat);
+        prompt = buildFreshResumePrompt(taskPrompt(this.p, task), (await diffSummary(ws.path, this.p.config.integration_branch)).stat);
         if (notes.length) prompt += `\n${buildMessagePrompt(task.id, notes)}`;
       }
       if (pendingWave) prompt += `\n\n${childHandoff(this.p, task.id)}`;
       this.p.emit("run.resumed", { ...(resumeSessionId ? { sessionId: resumeSessionId } : {}), fresh: !resumeSessionId }, { taskId: task.id });
       this.p.transition(task.id, "RUNNING", task.state === "PAUSED" ? "resume after limit" : "resume");
     } else {
-      prompt = this.taskPrompt(task);
+      prompt = taskPrompt(this.p, task);
       if (threadForTask(this.p, task.id) && !isDelegatedChild(this.p, task.id)) prompt += "\n\nIf genuinely independent work would help, you may finish this turn with one line: DELEGATE: {\"jobs\":[{\"title\":\"...\",\"description\":\"...\",\"files_hint\":[\"path\"],\"acceptance\":[\"criterion\"]}]}. Use at most three disjoint jobs. Harness validates them, runs them in isolated worktrees, and resumes you with their verified results. Otherwise finish the work yourself.\n";
       const previous = previousTurn(this.p, task.id);
       const thread = threadForTask(this.p, task.id);
@@ -560,63 +534,12 @@ export class ProjectEngine {
     return max;
   }
 
-  private async repairPrompt(task: Task, worktree: string): Promise<string> {
-    const req = this.p.store.events.list({ projectId: this.p.id, taskId: task.id, types: ["repair.requested"] }).at(-1);
-    const cause = req?.type === "repair.requested" ? req.payload.cause : "gate";
-    const attempt = req?.type === "repair.requested" ? req.payload.attempt : task.attempts;
-    if (cause === "review") {
-      const reviewRun = this.p.store.runs.latestForTask(this.p.id, task.id, ["review"]);
-      const findings = reviewRun ? this.p.store.runs.findings(reviewRun.id) : [];
-      return buildReviewRepairPrompt({ taskId: task.id, attempt, attemptsMax: task.attemptsMax, findings });
-    }
-    if (cause === "conflict") {
-      const files = req?.type === "repair.requested" ? (req.payload.files ?? []) : [];
-      return buildConflictPrompt({ taskId: task.id, files, attempt, attemptsMax: task.attemptsMax });
-    }
-    if (cause === "human") {
-      const ev = this.p.store.events.list({ projectId: this.p.id, taskId: task.id, types: ["approval.denied"] }).at(-1);
-      const comment = ev?.type === "approval.denied" ? ev.payload.comment : undefined;
-      return `A reviewer sent this task back.\n\n${comment ?? "(no comment)"}\n\nAddress the comment. The checks will run again after you finish.\n`;
-    }
-    const gateRun = this.lastGateRun(task.id);
-    const failures = gateRun ? this.p.store.runs.checkResults(gateRun).filter((c) => !c.ok && c.required) : [];
-    const argv = (id: string) => this.p.checks.checks.find((c) => c.id === id)?.argv ?? [id];
-    const lastImpl = this.implementerRuns(task.id).at(-1);
-    const prevSummary = lastImpl ? this.lastResultSummary(lastImpl.id) : undefined;
-    return buildRepairPrompt({
-      attempt,
-      attemptsMax: task.attemptsMax,
-      failures: failures.map((f) => ({ checkId: f.checkId, argv: argv(f.checkId), outputTail: f.outputTail ?? "" })),
-      diffStat: (await diffSummary(worktree, this.p.config.integration_branch)).stat,
-      ...(prevSummary ? { previousSummary: prevSummary } : {}),
-    });
-  }
-
-  private lastGateRun(taskId: string): string | undefined {
-    const ev = this.p.store.events.list({ projectId: this.p.id, taskId, types: ["gate.failed", "gate.passed"] }).at(-1);
-    return ev?.runId ?? undefined;
-  }
-
-  private lastResultSummary(runId: string): string | undefined {
-    const evs = this.p.store.events.list({ runId, types: ["run.finished"] });
-    const e = evs.at(-1);
-    return e?.type === "run.finished" ? e.payload.summary : undefined;
-  }
-
   private async dispatchReview(task: Task, workerId: string, route: string): Promise<void> {
     const wt = this.worktreeAbs(task);
-    const base = this.p.config.integration_branch;
-    const spec = this.taskSpec(task.id);
     const implRoute = this.implementerRuns(task.id).at(-1)?.route ?? this.p.config.roles[task.role]!.route;
     const sameRoute = implRoute === route;
     this.p.emit("review.started", { route, sameRoute }, { taskId: task.id });
-    const prompt = buildReviewPrompt({
-      taskId: task.id,
-      title: task.title,
-      acceptance: spec?.front.acceptance ?? [],
-      checks: this.p.checks.checks.filter((c) => c.required).map((c) => c.id),
-      diff: await diffText(wt, base, 200_000, (await changedFiles(wt, base)).filter(isSecretPath)),
-    });
+    const prompt = await reviewPrompt(this.p, task, wt);
     const before = await workingTreeHash(wt);
     this.startRun(task, workerId, route, { kind: "review", prompt, cwd: wt, mode: "readonly", allowedPaths: [], jsonSchema: REVIEW_JSON_SCHEMA }, before);
   }
