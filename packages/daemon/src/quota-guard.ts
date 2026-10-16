@@ -227,8 +227,11 @@ export class QuotaGuard implements Guard {
           return sum + (t ? this.estimate(route, this.roleFor(t, l.kind), this.sizeFor(t, l.kind), kind).p80 : 0);
         }, 0);
       const est7d = this.estimate(route, role, size, "7d");
+      // Weekly pacing (spreading the week's room over the windows left) protects unattended bursts.
+      // A person waiting on a request is only held back by real limits: the weekly room itself.
+      const weekly = ctx.attended && used7d !== null ? Math.min(cap7d, 100 - cfg.burst.safety_margin_pct) - used7d : head.weeklyPerWindow;
       const fit = cfg.burst.enabled
-        ? fitsWindows({ headroom5h: head.headroom5h, weeklyPerWindow: head.weeklyPerWindow, cost5h: est.p80, cost7d: est7d.p80, inFlight5h: inFlight("5h"), inFlight7d: inFlight("7d") })
+        ? fitsWindows({ headroom5h: head.headroom5h, weeklyPerWindow: weekly, cost5h: est.p80, cost7d: est7d.p80, inFlight5h: inFlight("5h"), inFlight7d: inFlight("7d") })
         : head.usable <= 0
           ? fits(0, head.usable, 0)
           : ({ ok: true } as const);

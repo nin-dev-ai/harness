@@ -120,6 +120,18 @@ describe("chat with your team", () => {
     store.stop();
   });
 
+  it("a task that cannot start says why in the team chat, once", async () => {
+    const { ui, emit, store } = await setup(undefined, 150, 40);
+    const blocked = { ts: NOW, projectId: "p", type: "task.blocked", taskId: "T-012", workerId: null, runId: null, payload: { reason: "would_not_fit", detail: "claude-sub 5h: needs ~6%, 2% left" } } as unknown as HarnessEvent;
+    emit(blocked);
+    emit(blocked);
+    await new Promise((r) => setTimeout(r, 50));
+    const f = ui.lastFrame()!;
+    expect(f).toContain("T-012 is waiting: claude-sub 5h: needs ~6%, 2% left");
+    expect(f.split("T-012 is waiting").length).toBe(2);
+    store.stop();
+  });
+
   it("the lead's status and follow-ups appear in the team chat", async () => {
     const { ui, emit, store } = await setup(undefined, 150, 40);
     emit({ ts: NOW, projectId: "p", type: "lead.reported", taskId: null, workerId: null, runId: null, payload: { status: "Feed done; the page still lacks an error state.", followups: ["T-011"], round: 0, done: false } } as unknown as HarnessEvent);

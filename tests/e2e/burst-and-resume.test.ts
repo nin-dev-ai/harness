@@ -108,6 +108,19 @@ describe("burst and resume", () => {
     expect(h.project.store.runs.listByTask(h.project.id, a.id)).toHaveLength(0);
   });
 
+  it("weekly pacing never holds back a person who is waiting: only the real weekly room counts", async () => {
+    await start(config());
+    s.adapters.get("slow")!.setUsage("slow", [
+      usage({ window: "5h", usedPct: 10, resetsAt: "2026-01-05T12:00:00.000Z" }),
+      usage({ window: "7d", usedPct: 85, resetsAt: "2026-01-07T09:00:00.000Z" }),
+    ]);
+    s.scripts.set("T-001", byMode(writes({ "src/server/a.ts": "a\n" })));
+    await h.daemon.handlers().status!({ projectId: h.project.id }, { attended: true, subscribe: () => () => undefined });
+    const a = h.project.createTask({ title: "A", role: "backend", size: "S", state: "QUEUED" });
+    h.engine.start();
+    await h.until(a.id, "MERGED");
+  });
+
   it("unknown-quota: no vendor data shows unknown and runs only within the manual budget", async () => {
     await start(config({ limits: "  routes:\n    fast: { manual_budget: { unit: runs, per: day, amount: 2 } }" }));
     for (const id of ["T-001", "T-002", "T-003"]) s.scripts.set(id, byMode(writes({ [`src/ui/${id}.ts`]: "x\n" })));

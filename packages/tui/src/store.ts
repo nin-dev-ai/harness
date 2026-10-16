@@ -78,6 +78,8 @@ export class TuiStore {
     for (const l of this.listeners) l();
   }
 
+  private blockedSaid = new Set<string>();
+
   /** Commits on the integration branch that your branch does not have yet. */
   unlanded = 0;
 
@@ -149,6 +151,14 @@ export class TuiStore {
       if (e.type === "run.finished" || e.type === "branch.merged" || e.type === "gate.passed" || e.type === "gate.failed") {
         this.scheduleFiles(e.taskId);
         void this.loadDetail(e.taskId);
+      }
+    }
+    if (e.type === "task.blocked" && e.taskId && ["would_not_fit", "window_exhausted", "paused", "policy", "no_worker"].includes(e.payload.reason)) {
+      // Waiting is never silent: say once per task and reason why it has not started.
+      const key = `${e.taskId}|${e.payload.reason}|${e.payload.detail ?? ""}`;
+      if (!this.blockedSaid.has(key)) {
+        this.blockedSaid.add(key);
+        this.note("_team", "warn", `${e.taskId} is waiting: ${e.payload.detail ?? e.payload.reason.replace(/_/g, " ")}`);
       }
     }
     if (e.type === "branch.merged" || e.type === "integration.landed" || e.type === "integration.rebuilt") void this.refreshLand();
