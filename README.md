@@ -1,3 +1,5 @@
+<img src="assets/readme-banner.svg" alt="harness project banner" width="100%" />
+
 # harness — multi-agent coding from one terminal
 
 **harness** is a local terminal CLI that coordinates Claude Code, Codex, and Cursor on one Git repository. Describe the work in plain language; harness routes tasks to configured agents, isolates each writer in a Git worktree, and keeps a shared team board and review trail.
