@@ -1,46 +1,17 @@
-# harness
+# harness — multi-agent coding from one terminal
 
-Run Claude Code, Codex and Cursor's agent as **one coordinated team from one terminal**, the glue that stretches several modest subscriptions further than one big one.
+**harness** is a local terminal CLI that coordinates Claude Code, Codex, and Cursor on one Git repository. Describe the work in plain language; harness routes tasks to configured agents, isolates each writer in a Git worktree, and keeps a shared team board and review trail.
 
-You say what you want. harness picks the right agent for each part (no `@tagging`), runs each one in its own git worktree and branch, keeps one shared team board so no agent loses the thread, and a **lead** agent checks every finished round and sets small follow-ups. It then:
+It is built for developers who want to run multiple coding agents without managing separate terminals, branches, handoffs, and verification by hand. It:
 
 - checks every task with **your own tests**, run independently of the agent;
 - sends failures back to the same agent session as a bounded repair loop;
 - has a read-only reviewer check the diff;
 - merges passing work into `harness/integration` and, with the default `land: auto`, delivers it to the configured base branch after checks pass.
 
-It knows each plan's usage windows, so it spends headroom before a reset, pauses cleanly at a limit, and resumes after the reset. A role can **pool** several tools (`pool: [codex, cursor]`): each task goes to whichever has the most room left, and **model tiers** (`models: { S: …, L: … }`) give small tasks a cheaper model.
+It reads available usage windows, pauses at a limit, and resumes after the reset. A role can **pool** tools (`pool: [codex, cursor]`) and use model tiers (`models: { S: …, L: … }`) so tasks go to an available route at an appropriate cost.
 
-```
-██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗     (a huge gradient banner)
-██║  ██║██╔══██╗██╔══██╗████╗  ██║██╔════╝██╔════╝██╔════╝
-███████║███████║██████╔╝██╔██╗ ██║█████╗  ███████╗███████╗
-██╔══██║██╔══██║██╔══██╗██║╚██╗██║██╔══╝  ╚════██║╚════██║
-██║  ██║██║  ██║██║  ██║██║ ╚████║███████╗███████║███████║
-╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝
-
-╭──────────────────────────────────────────────────────────────╮
-│ ✦ harness v0.1.0 · shop                                      │
-│ ~/code/shop · ⎇ harness/integration                          │
-│                                                              │
-│ your 5 agents                                                │
-│   ✻ backend-1     claude  opus      working                  │
-│   ◆ frontend-1    codex   default   idle                     │
-│   ▲ fullstack-1   cursor  default    working                 │
-│   ✻ reviewer-1    claude  opus      idle                     │
-│   ✻ planner-1     claude  opus      idle                     │
-╰──────────────────────────────────────────────────────────────╯
- ❯ build a watchlist with live quotes and a login page
- ⏺ Quote feed and login first; the panel builds on the feed.
- · → backend: Quote feed adapter
- · → fullstack: Login page and session
- · → frontend: Watchlist panel (after T-001)
- ⠧ backend-1 T-001 Quote feed adapter · editing src/server/feed.js · 7m
-╭──────────────────────────────────────────────────────────────╮
-│ ❯ team  tell your team what to build…                        │
-╰──────────────────────────────────────────────────────────────╯
- ✦ shop  ▶ running  2 working · 1 queued          /agents · /usage · /help
-```
+[See a terminal session preview](docs/TERMINAL_PREVIEW.md).
 
 ## Quick start
 
@@ -165,3 +136,7 @@ pnpm smoke:claude          # opt-in live smoke test for one vendor (spends quota
 - Conventions for agents: [`AGENTS.md`](AGENTS.md)
 
 Each vendor sets its own terms for automated use of subscription plans. harness never reads, copies or rotates credentials, and makes no claims about getting around limits. It uses the plans you already have, within the caps you set.
+
+## Help and project status
+
+Read the [build progress](docs/PROGRESS.md) for what has been verified, or [open an issue](https://github.com/nin-dev-ai/harness/issues) for setup problems and bugs. Maintained by [nin-dev-ai](https://github.com/nin-dev-ai).
